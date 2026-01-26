@@ -14,14 +14,28 @@ model User {
   balance   Decimal  @default(100.00) @db.Decimal(10, 2)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  jailedUntil DateTime? // Persistent jail status
 
   stock       Stock?
   portfolio   Portfolio[]
   transactions Transaction[]
   activityLogs ActivityLog[]
+  voiceSessions VoiceSession[]
 
   @@unique([discordId, guildId]) // One user profile per server
   @@index([guildId]) // For efficient cleanup
+}
+
+model VoiceSession {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guildId   String
+  startTime DateTime @default(now())
+  endTime   DateTime?
+  
+  @@index([userId, guildId])
+  @@index([userId, endTime]) // For finding open sessions
 }
 
 model Stock {

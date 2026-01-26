@@ -9,61 +9,126 @@ class VoiceService {
         const key = `voice:start:${guildId}:${discordId}`;
         const now = Date.now().toString();
 
-        // Use SETNX to set only if not exists (prevent resetting time on re-join events if already tracked? 
-        // Or arguably, if they rejoin, we might want to continue? 
-        // But usually join + move = separate events. 
-        // Let's assume SETNX is safer to avoid resetting if multi-events fire.
+        // 1. Set in Redis (Fast access)
         const set = await redis.setnx(key, now);
-        if (set) {
+
+        // 2. persist to DB
+        // Find user to get internal ID
+        const user = await prisma.user.findUnique({
+            where: { discordId_guildId: { discordId, guildId } }
+        });
+
+        if (user) {
+            // Check if there is already an open session, close it if so
+            const existingSession = await prisma.voiceSession.findFirst({
+                where: {
+                    userId: user.id,
+                    guildId: guildId,
+                    endTime: null
+                }
+            });
+
+            if (existingSession) {
+                // Close it to be safe (maybe crashed before?)
+                await prisma.voiceSession.update({
+                    where: { id: existingSession.id },
+                    data: { endTime: new Date() }
+                });
+            }
+
+            // Create new session
+            await prisma.voiceSession.create({
+                data: {
+                    userId: user.id,
+                    guildId,
+                    startTime: new Date()
+                }
+            });
+        }
+
+        if (set && user) {
             console.log(`Started voice tracking for ${discordId} in ${guildId}`);
         }
     }
 
     async stopTracking(discordId: string, guildId: string) {
         const key = `voice:start:${guildId}:${discordId}`;
+
+        // 1. Check Redis First
         const startStr = await redis.get(key);
+        let startTimeMs: number | null = startStr ? parseInt(startStr) : null;
+        let dbSessionId: string | null = null;
 
-        if (!startStr) return;
+        // 2. Check DB (Fallback & Authority)
+        const user = await prisma.user.findUnique({
+            where: { discordId_guildId: { discordId, guildId } }
+        });
 
-        const start = parseInt(startStr);
-        const now = Date.now();
-        const durationMs = now - start;
-        const durationMinutes = Math.floor(durationMs / (1000 * 60));
+        if (!user) {
+            // If user doesn't exist, we can't track/reward. Just clean redis.
+            await redis.del(key);
+            return;
+        }
 
-        if (durationMinutes > 0) {
-            const user = await prisma.user.findUnique({
-                where: { discordId_guildId: { discordId, guildId } }
-            });
+        const openSession = await prisma.voiceSession.findFirst({
+            where: {
+                userId: user.id,
+                guildId: guildId,
+                endTime: null
+            },
+            orderBy: { startTime: 'desc' }
+        });
 
-            if (user) {
-                console.log(`Awarding voice points to ${discordId} for ${durationMinutes} minutes.`);
-                // We track total minutes. Original code did 1 call per minute.
-                // StockService.trackVoice adds 60 value (maybe minutes?).
-                // Let's call trackVoice multiple times or update trackVoice to accept amount.
-                // Checking stockService.ts: trackVoice(userId) -> adds 1 entry with value 60.
-                // Suggestion: Call it once per minute? Or loop?
-                // Better: Loop for now to keep behavior identical, or refactor trackVoice later.
-                // To avoid massive await loop, we can just add one log with value = 60 * minutes?
-                // But StockService.trackVoice hardcodes value: 60.
-                // LET'S MODIFY StockService to accept minutes or value later. 
-                // For now, I will modify this to use a loop but careful.
-                // Actually, the best way is to update StockService.trackVoice to take a "minutes" arg.
-                // I will update StockService next. I'll update this file to call trackVoice(user.id, durationMinutes).
-
-                await StockService.trackVoice(user.id, durationMinutes);
+        if (openSession) {
+            dbSessionId = openSession.id;
+            // If we didn't have start time from Redis, use DB
+            if (!startTimeMs) {
+                startTimeMs = openSession.startTime.getTime();
             }
         }
 
+        // If no start time found in either, nothing to do
+        if (!startTimeMs && !openSession) {
+            return;
+        }
+
+        const now = Date.now();
+        const durationMs = now - (startTimeMs || now); // Should not happen if logic holds
+        const durationMinutes = Math.floor(durationMs / (1000 * 60));
+
+        // 3. Persist/Update DB
+        if (dbSessionId) {
+            await prisma.voiceSession.update({
+                where: { id: dbSessionId },
+                data: { endTime: new Date() }
+            });
+        } else if (startTimeMs) {
+            // Edge case: In Redis but not DB (DB write failed at start?)
+            // Record the finished session now.
+            await prisma.voiceSession.create({
+                data: {
+                    userId: user.id,
+                    guildId,
+                    startTime: new Date(startTimeMs),
+                    endTime: new Date()
+                }
+            });
+        }
+
+        // 4. Award Points
+        if (durationMinutes > 0) {
+            console.log(`Awarding voice points to ${discordId} for ${durationMinutes} minutes.`);
+            await StockService.trackVoice(user.id, durationMinutes);
+        }
+
+        // 5. Cleanup Redis
         await redis.del(key);
         console.log(`Stopped voice tracking for ${discordId} in ${guildId}`);
     }
 
-    // Optional: Cleanup method if needed, though Redis keys can be given TTL if we wanted.
-    // We'll leave stopTrackingForGuild empty or implementing a scan if really needed, 
-    // but usually not critical for "leaks" anymore since they are just redis keys.
+    // Optional: Cleanup method if needed
     async stopTrackingForGuild(guildId: string) {
-        // Implementation would require SCAN. For now, we can omit or log.
-        console.log(`stopTrackingForGuild called for ${guildId} - handled by Redis keys persistence.`);
+        console.log(`stopTrackingForGuild called for ${guildId} - handled by DB/Redis persistence logic.`);
     }
 }
 

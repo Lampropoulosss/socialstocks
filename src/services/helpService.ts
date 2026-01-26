@@ -7,9 +7,9 @@ export class HelpService {
             .setTitle('SocialStocks Commands')
             .setColor(Colors.Info)
             .addFields(
-                { name: '/profile', value: 'Check your balance and portfolio.' },
+                { name: '/profile [user?]', value: 'Check your or another user\'s balance and portfolio.' },
                 { name: '/market', value: 'See the top stocks available to buy.' },
-                { name: '/buy [user] [amount]', value: 'Buy shares of a friend.' },
+                { name: '/buy [user] [amount] [max_price?]', value: 'Buy shares of a friend.' },
                 { name: '/sell [user] [amount]', value: 'Sell shares for profit.' },
                 { name: '/help', value: 'Show this message.' }
             )

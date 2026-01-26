@@ -2,12 +2,10 @@ services:
   app:
     build:
       context: .
-      args:
-        - DATABASE_URL=${DATABASE_URL}
     restart: always
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/socialstocks?schema=public
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - CLIENT_ID=${CLIENT_ID}
     depends_on:
@@ -21,9 +19,9 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=socialstocks
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:

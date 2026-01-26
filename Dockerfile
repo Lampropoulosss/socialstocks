@@ -5,33 +5,17 @@ WORKDIR /usr/src/app
 
 COPY package*.json ./
 COPY prisma ./prisma/
-COPY prisma.config.js ./
+
+# --- NEW: Copy the config file before generation ---
+COPY prisma.config.ts ./ 
 
 RUN npm install
-ARG DATABASE_URL
-ENV DATABASE_URL=$DATABASE_URL
+
+# 1. Generate Client
+# Prisma 7 will now read prisma.config.ts to validate the schema
 RUN npx prisma generate
 
 COPY . .
 
+# 2. Compile TS
 RUN npm run build
-
-# Production stage
-FROM node:20-alpine
-
-WORKDIR /usr/src/app
-
-COPY --from=builder /usr/src/app/node_modules ./node_modules
-COPY --from=builder /usr/src/app/package*.json ./
-COPY --from=builder /usr/src/app/dist ./dist
-COPY --from=builder /usr/src/app/prisma ./prisma
-COPY --from=builder /usr/src/app/prisma.config.js ./
-
-# Install only production dependencies (optional optimization, but might break if devDeps needed for some reason, sticking to safe copy for now or pruning)
-# For now, we copied node_modules from builder which includes everything. 
-# To be cleaner, we could run npm ci --only=production here, but we need prisma client generated.
-# Simplest approach for now is copying node_modules.
-
-EXPOSE 3000
-
-CMD ["npm", "start"]

@@ -1,0 +1,58 @@
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import prisma from '../prisma';
+import { Colors, ButtonLabels, Emojis } from '../utils/theme';
+
+export class MarketService {
+    static async getMarketResponse() {
+        const stocks = await prisma.stock.findMany({
+            orderBy: { currentPrice: 'desc' },
+            take: 10,
+            include: {
+                user: true,
+                history: { orderBy: { recordedAt: 'desc' }, take: 1 } // Fetch last history entry
+            }
+        });
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Market Leaderboard`)
+            .setColor(Colors.Success);
+
+        const description = stocks.map((s, i) => {
+            const current = Number(s.currentPrice);
+            const previous = s.history[0] ? Number(s.history[0].price) : current;
+            let arrow = "➖";
+            if (current > previous) arrow = "📈";
+            if (current < previous) arrow = "📉";
+
+            return `${i + 1}. **${s.symbol}** (${s.user.username}): $${current.toFixed(2)} ${arrow}`;
+        }).join('\n');
+
+        embed.setDescription(description || "No active stocks yet.");
+
+        const row = new ActionRowBuilder<ButtonBuilder>()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('refresh_market')
+                    .setLabel(ButtonLabels.Refresh)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(Emojis.Refresh),
+                new ButtonBuilder()
+                    .setCustomId('refresh_profile')
+                    .setLabel(ButtonLabels.Profile)
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji(Emojis.Profile),
+                new ButtonBuilder()
+                    .setCustomId('refresh_leaderboard')
+                    .setLabel(ButtonLabels.Leaderboard)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(Emojis.Leaderboard),
+                new ButtonBuilder()
+                    .setCustomId('view_help')
+                    .setLabel(ButtonLabels.Help)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(Emojis.Help)
+            );
+
+        return { embeds: [embed], components: [row] };
+    }
+}

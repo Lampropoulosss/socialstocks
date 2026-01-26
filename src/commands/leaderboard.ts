@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { LeaderboardService } from '../services/leaderboardService';
 
 module.exports = {
@@ -13,20 +13,15 @@ module.exports = {
                 await interaction.editReply("This command can only be used in a server.");
                 return;
             }
-            const topUsers = await LeaderboardService.getLeaderboard(interaction.guildId, 10);
 
-            if (topUsers.length === 0) {
+            const response = await LeaderboardService.getLeaderboardResponse(interaction.guildId);
+
+            if (!response) {
                 await interaction.editReply("The leaderboard is empty. Wait for the next update cycle.");
                 return;
             }
 
-            const embed = new EmbedBuilder()
-                .setTitle('🏆 SocialStocks Leaderboard')
-                .setColor('#FFD700')
-                .setDescription(topUsers.map(u => `**#${u.rank}** ${u.username} — $${u.netWorth.toFixed(2)}`).join('\n'))
-                .setFooter({ text: 'Updates every 5 minutes' });
-
-            await interaction.editReply({ embeds: [embed] });
+            await interaction.editReply(response);
 
         } catch (error) {
             console.error(error);

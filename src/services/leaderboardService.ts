@@ -1,9 +1,13 @@
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import prisma from '../prisma';
 import redis from '../redis';
 import Decimal from 'decimal.js';
+import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
 export class LeaderboardService {
     private static LEADERBOARD_KEY_PREFIX = 'leaderboard:networth';
+
+    // ... (rest of methods unchanged)
 
     /**
      * Updates the leaderboard in Redis by calculating net worth for all users.
@@ -150,5 +154,45 @@ export class LeaderboardService {
         }
 
         return leaderboard;
+    }
+
+    static async getLeaderboardResponse(guildId: string) {
+        const topUsers = await this.getLeaderboard(guildId, 10);
+
+        if (topUsers.length === 0) {
+            return null; // Handle null in caller
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🏆 SocialStocks Leaderboard')
+            .setColor(Colors.Gold)
+            .setDescription(topUsers.map(u => `**#${u.rank}** ${u.username} — $${u.netWorth.toFixed(2)}`).join('\n'))
+            .setFooter({ text: 'Updates every 5 minutes' });
+
+        const row = new ActionRowBuilder<ButtonBuilder>()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('refresh_leaderboard')
+                    .setLabel(ButtonLabels.Refresh)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(Emojis.Refresh),
+                new ButtonBuilder()
+                    .setCustomId('refresh_profile')
+                    .setLabel(ButtonLabels.Profile)
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji(Emojis.Profile),
+                new ButtonBuilder()
+                    .setCustomId('refresh_market')
+                    .setLabel(ButtonLabels.Market)
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji(Emojis.Market),
+                new ButtonBuilder()
+                    .setCustomId('view_help')
+                    .setLabel(ButtonLabels.Help)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(Emojis.Help)
+            );
+
+        return { embeds: [embed], components: [row] };
     }
 }

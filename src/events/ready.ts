@@ -32,7 +32,15 @@ module.exports = {
         console.log("Scanning for active voice users...");
         for (const guild of client.guilds.cache.values()) {
             for (const state of guild.voiceStates.cache.values()) {
-                if (state.channelId && state.member && !state.member.user.bot) {
+                if (
+                    state.channelId &&
+                    state.member &&
+                    !state.member.user.bot &&
+                    !state.selfMute &&
+                    !state.selfDeaf &&
+                    !state.serverMute &&
+                    !state.serverDeaf
+                ) {
                     voiceService.startTracking(state.member.id, guild.id);
                 }
             }

@@ -1,8 +1,6 @@
 import { Events, VoiceState } from 'discord.js';
 import { voiceService } from '../services/voiceService';
 
-
-
 module.exports = {
     name: Events.VoiceStateUpdate,
     async execute(oldState: VoiceState, newState: VoiceState) {
@@ -11,13 +9,26 @@ module.exports = {
 
         if (!userId || newState.member?.user.bot) return;
 
-        // User joined a channel
-        if (!oldState.channelId && newState.channelId) {
+        const shouldTrack = (state: VoiceState) => {
+            return (
+                state.channelId !== null &&
+                !state.selfMute &&
+                !state.selfDeaf &&
+                !state.serverMute &&
+                !state.serverDeaf
+            );
+        };
+
+        const wasTracking = shouldTrack(oldState);
+        const isTracking = shouldTrack(newState);
+
+        if (!wasTracking && isTracking) {
+            // Started being eligible (Joined unmuted OR Unmuted/Undeafened)
             voiceService.startTracking(userId, guildId);
         }
 
-        // User left a channel
-        if (oldState.channelId && !newState.channelId) {
+        if (wasTracking && !isTracking) {
+            // Stopped being eligible (Left OR Muted/Deafened)
             voiceService.stopTracking(userId, guildId);
         }
     },

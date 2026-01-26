@@ -6,7 +6,7 @@ module.exports = {
         .setDescription('List all available commands'),
     async execute(interaction: ChatInputCommandInteraction) {
         const embed = new EmbedBuilder()
-            .setTitle('SocialStock Commands')
+            .setTitle('SocialStocks Commands')
             .setColor(0xFFFF00)
             .addFields(
                 { name: '/profile', value: 'Check your balance and portfolio.' },

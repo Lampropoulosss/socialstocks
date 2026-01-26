@@ -6,7 +6,7 @@ services:
         - DATABASE_URL=${DATABASE_URL}
     restart: always
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/socialstock?schema=public
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/socialstocks?schema=public
       - REDIS_URL=redis://redis:6379
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - CLIENT_ID=${CLIENT_ID}
@@ -23,7 +23,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=socialstock
+      - POSTGRES_DB=socialstocks
     ports:
       - "5432:5432"
     volumes:

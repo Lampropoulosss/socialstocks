@@ -21,7 +21,7 @@ module.exports = {
             }
 
             const embed = new EmbedBuilder()
-                .setTitle('🏆 SocialStock Leaderboard')
+                .setTitle('🏆 SocialStocks Leaderboard')
                 .setColor('#FFD700')
                 .setDescription(topUsers.map(u => `**#${u.rank}** ${u.username} — $${u.netWorth.toFixed(2)}`).join('\n'))
                 .setFooter({ text: 'Updates every 5 minutes' });

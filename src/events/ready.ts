@@ -8,49 +8,45 @@ module.exports = {
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag}`);
 
-        // Initial Leaderboard Sync
-        console.log("Running initial leaderboard sync...");
-        try {
-            await LeaderboardService.syncLeaderboard();
-        } catch (err) {
-            console.error("Failed to sync leaderboard:", err);
-        }
+        // Initial Syncs
+        LeaderboardService.syncLeaderboard().catch(console.error);
 
-        // Schedule sync every 1 hour (Fallback)
+        // Intervals
         setInterval(() => {
-            LeaderboardService.syncLeaderboard().catch((err: unknown) => console.error("Leaderboard sync failed:", err));
+            LeaderboardService.syncLeaderboard().catch(console.error);
         }, 60 * 60 * 1000);
 
-        // Schedule stock price updates every 10 minutes
+        // Decay (every 10 mins is fine, or hourly)
         setInterval(() => {
             import('../services/stockService').then(({ StockService }) => {
-                StockService.updateAllStocks().catch(err => console.error("Stock update failed:", err));
+                StockService.updateAllStocks().catch(console.error);
             });
         }, 10 * 60 * 1000);
 
-        // Schedule activity flush every 30 seconds
+        // Activity Flush (Keep this fast, e.g., 5s or 10s is better than 30s for responsiveness)
         setInterval(() => {
             import('../services/activityService').then(({ ActivityService }) => {
-                ActivityService.flushActivities().catch(err => console.error("Activity flush failed:", err));
+                ActivityService.flushActivities().catch(console.error);
             });
-        }, 30 * 1000);
+        }, 5 * 1000);
 
-        // Scan for voice states
+        // Non-Blocking Voice Scan
         console.log("Scanning for active voice users...");
-        for (const guild of client.guilds.cache.values()) {
+
+        const guilds = client.guilds.cache.values();
+        for (const guild of guilds) {
+            // CRITICAL: Yield to event loop to prevent freezing cpu
+            await new Promise(resolve => setImmediate(resolve));
+
+            if (!guild.voiceStates) continue;
+
             for (const state of guild.voiceStates.cache.values()) {
-                if (
-                    state.channelId &&
-                    state.member &&
-                    !state.member.user.bot &&
-                    !state.selfMute &&
-                    !state.selfDeaf &&
-                    !state.serverMute &&
-                    !state.serverDeaf
-                ) {
-                    voiceService.startTracking(state.member.id, guild.id);
+                // Use state.id (Discord ID), not state.member (which might be null if invisible)
+                if (state.channelId && state.id && !state.member?.user.bot) {
+                    voiceService.startTracking(state.id, guild.id);
                 }
             }
         }
+        console.log("Voice scan complete.");
     },
 };

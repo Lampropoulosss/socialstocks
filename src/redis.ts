@@ -18,76 +18,64 @@ export default redis;
 
 // Define the Lua script for atomic checks
 const messageCheckScript = `
-    local userKey = KEYS[1]
-    local historyKey = KEYS[2]
-    local hashKey = KEYS[3]
-    local rewardKey = KEYS[4]
-    
+    local guildId = KEYS[1]
+    local discordId = KEYS[2]
     local now = tonumber(ARGV[1])
     local contentHash = ARGV[2]
-    local cooldownSeconds = tonumber(ARGV[3])
-    
-    -- 1. Check Jail (User cache stored as JSON string)
-    local userData = redis.call('GET', userKey)
-    if userData then
-        local decoded = cjson.decode(userData)
-        if decoded.jailedUntil and decoded.jailedUntil > now then
-            return { 'JAILED', decoded.jailedUntil }
-        end
+
+    -- Keys
+    local jailKey = "user:jail:" .. guildId .. ":" .. discordId
+    local hashKey = "spam:hash:" .. guildId .. ":" .. discordId
+    local spamKey = "spam:times:" .. guildId .. ":" .. discordId
+
+    -- 1. Check Jail (Fail fast)
+    if redis.call('EXISTS', jailKey) == 1 then
+        return { 'JAILED' }
     end
 
-    -- 2. Check Repetition (Hash)
+    -- 2. Duplicate Check
     local lastHash = redis.call('GET', hashKey)
     if lastHash == contentHash then
         return { 'DUPLICATE' }
     end
+    redis.call('SET', hashKey, contentHash, 'EX', 60)
 
-    -- 3. Burst Detection
-    redis.call('RPUSH', historyKey, now)
-    redis.call('LTRIM', historyKey, -10, -1) -- Keep last 10
-    redis.call('EXPIRE', historyKey, 3600)
+    -- 3. Rate Limit / Burst (Sliding Window)
+    redis.call('RPUSH', spamKey, now)
+    -- Keep last 6 timestamps
+    redis.call('LTRIM', spamKey, -6, -1) 
+    redis.call('EXPIRE', spamKey, 60)
     
-    local history = redis.call('LRANGE', historyKey, 0, -1)
-    if #history >= 10 then
+    local history = redis.call('LRANGE', spamKey, 0, -1)
+    if #history >= 6 then
         local first = tonumber(history[1])
         local last = tonumber(history[#history])
-        if (last - first) < 3000 then -- 3 seconds for 10 messages
-            -- TRIGGER JAIL
-            redis.call('DEL', historyKey)
+        
+        -- If 6 messages in less than 4 seconds (Burst)
+        if (last - first) < 4000 then 
+            -- JAIL THEM in Redis for 5 mins
+            redis.call('SET', jailKey, 1, 'EX', 300) 
             return { 'TRIGGER_JAIL' }
         end
     end
 
-    -- 4. Update Hash
-    redis.call('SET', hashKey, contentHash, 'EX', 60)
-
-    -- 5. Check Reward Cooldown
-    local ttl = redis.call('TTL', rewardKey)
-    if ttl > 0 then
-        return { 'OK', 'COOLDOWN' }
-    else
-        redis.call('SET', rewardKey, now, 'EX', cooldownSeconds)
-        return { 'OK', 'REWARD' }
-    end
+    return { 'OK' }
 `;
 
-/**
- * Atomic check for message flow (Jail, Spam, Cooldown)
- */
 export const checkMessageFlow = async (
     guildId: string,
     discordId: string,
     contentHash: string,
     now: number
 ) => {
-    const keys = [
-        `user:registered:${guildId}:${discordId}`,
-        `user:msgs:${guildId}:${discordId}`,
-        `user:last_msg:${guildId}:${discordId}`,
-        `user:last_reward:${guildId}:${discordId}`
-    ];
-
-    // execute script
-    // @ts-ignore: ioredis eval definitions can be tricky
-    return redis.eval(messageCheckScript, 4, ...keys, String(now), contentHash, '30');
+    // @ts-ignore
+    return redis.eval(
+        messageCheckScript,
+        2, // Number of KEYS
+        guildId,
+        discordId,
+        // ARGS
+        String(now),
+        contentHash
+    );
 };

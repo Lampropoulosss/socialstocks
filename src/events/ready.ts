@@ -28,6 +28,13 @@ module.exports = {
             });
         }, 10 * 60 * 1000);
 
+        // Schedule activity flush every 30 seconds
+        setInterval(() => {
+            import('../services/activityService').then(({ ActivityService }) => {
+                ActivityService.flushActivities().catch(err => console.error("Activity flush failed:", err));
+            });
+        }, 30 * 1000);
+
         // Scan for voice states
         console.log("Scanning for active voice users...");
         for (const guild of client.guilds.cache.values()) {

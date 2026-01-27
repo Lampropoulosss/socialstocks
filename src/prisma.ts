@@ -1,15 +1,20 @@
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
-import dotenv from 'dotenv';
 
-dotenv.config();
+// 1. Create a connection pool using your DATABASE_URL
+const connectionString = process.env.DATABASE_URL;
 
-const connectionString = `${process.env.DATABASE_URL}`;
+const pool = new Pool({
+    connectionString
+});
 
-const pool = new Pool({ connectionString });
+// 2. Create the Prisma Adapter
 const adapter = new PrismaPg(pool);
 
-const prisma = new PrismaClient({ adapter });
+// 3. Instantiate PrismaClient with the adapter
+const prisma = new PrismaClient({
+    adapter
+});
 
 export default prisma;

@@ -4,18 +4,14 @@ FROM node:20-alpine AS builder
 WORKDIR /usr/src/app
 
 COPY package*.json ./
-COPY prisma ./prisma/
-
-# --- NEW: Copy the config file before generation ---
-COPY prisma.config.ts ./ 
 
 RUN npm install
 
-# 1. Generate Client
-# Prisma 7 will now read prisma.config.ts to validate the schema
-RUN npx prisma generate
-
+# 1. Copy ALL source code first (respecting .dockerignore)
 COPY . .
 
-# 2. Compile TS
+# 2. Generate the client NOW (so it uses the files we just copied)
+RUN npx prisma generate
+
+# 3. Build the app
 RUN npm run build

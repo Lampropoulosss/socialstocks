@@ -9,6 +9,14 @@ import prisma from './prisma';
 
 dotenv.config();
 
+const requiredEnv = ['DISCORD_TOKEN', 'DATABASE_URL', 'REDIS_URL'];
+for (const env of requiredEnv) {
+    if (!process.env[env]) {
+        console.error(`FATAL: Missing environment variable ${env}`);
+        process.exit(1);
+    }
+}
+
 // Extend Client type to include commands
 declare module 'discord.js' {
     interface Client {

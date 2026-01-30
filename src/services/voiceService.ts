@@ -1,134 +1,64 @@
-import { StockService } from './stockService';
-import prisma from '../prisma';
+import { GuildMember } from 'discord.js';
 import redis from '../redis';
+import { ActivityService, ActivityType } from './activityService';
 
 class VoiceService {
-    // Key prefix: voice:start:{guildId}:{discordId}
+    // Added username parameter
+    async startTracking(member: GuildMember) {
+        if (member.user.bot) return;
 
-    async startTracking(discordId: string, guildId: string) {
-        const key = `voice:start:${guildId}:${discordId}`;
+        const key = `voice:start:${member.guild.id}:${member.id}`;
+        const metaKey = `voice:meta:${member.guild.id}:${member.id}`;
         const now = Date.now().toString();
 
-        // 1. Set in Redis (Fast access)
-        const set = await redis.setnx(key, now);
-
-        // 2. persist to DB
-        // Find user to get internal ID
-        const user = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId, guildId } }
-        });
-
-        if (user) {
-            // Check if there is already an open session, close it if so
-            const existingSession = await prisma.voiceSession.findFirst({
-                where: {
-                    userId: user.id,
-                    guildId: guildId,
-                    endTime: null
-                }
-            });
-
-            if (existingSession) {
-                // Close it to be safe (maybe crashed before?)
-                await prisma.voiceSession.update({
-                    where: { id: existingSession.id },
-                    data: { endTime: new Date() }
-                });
-            }
-
-            // Create new session
-            await prisma.voiceSession.create({
-                data: {
-                    userId: user.id,
-                    guildId,
-                    startTime: new Date()
-                }
-            });
-        }
-
-        if (set && user) {
-            console.log(`Started voice tracking for ${discordId} in ${guildId}`);
-        }
+        // Use a transaction (pipeline) to set start time AND cache username
+        const pipeline = redis.pipeline();
+        pipeline.setnx(key, now);
+        // Cache username for 24h just in case, to ensure we have it when they leave
+        pipeline.set(metaKey, member.user.username, 'EX', 86400);
+        await pipeline.exec();
     }
 
     async stopTracking(discordId: string, guildId: string) {
         const key = `voice:start:${guildId}:${discordId}`;
+        const metaKey = `voice:meta:${guildId}:${discordId}`;
 
-        // 1. Check Redis First
-        const startStr = await redis.get(key);
-        let startTimeMs: number | null = startStr ? parseInt(startStr) : null;
-        let dbSessionId: string | null = null;
+        // Fetch start time and username in one go
+        const [startStr, username] = await redis.mget(key, metaKey);
 
-        // 2. Check DB (Fallback & Authority)
-        const user = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId, guildId } }
+        // Cleanup immediately
+        await redis.del(key, metaKey);
+
+        if (!startStr) return;
+
+        const startTimeMs = parseInt(startStr, 10);
+        if (isNaN(startTimeMs)) return;
+
+        const durationMinutes = Math.floor((Date.now() - startTimeMs) / 60000);
+        if (durationMinutes < 1) return;
+
+        // Use cached username, or fallback to "Unknown" (which will trigger a DB fetch in ActivityService if logic allows)
+        // Ideally, ActivityService should look up the user if username is "Unknown"
+        const finalUsername = username || "Unknown";
+
+        await ActivityService.bufferActivity({
+            discordId,
+            guildId,
+            username: finalUsername,
+            type: ActivityType.VOICE_MINUTE,
+            value: durationMinutes * 2, // 2 points per minute
         });
-
-        if (!user) {
-            // If user doesn't exist, we can't track/reward. Just clean redis.
-            await redis.del(key);
-            return;
-        }
-
-        const openSession = await prisma.voiceSession.findFirst({
-            where: {
-                userId: user.id,
-                guildId: guildId,
-                endTime: null
-            },
-            orderBy: { startTime: 'desc' }
-        });
-
-        if (openSession) {
-            dbSessionId = openSession.id;
-            // If we didn't have start time from Redis, use DB
-            if (!startTimeMs) {
-                startTimeMs = openSession.startTime.getTime();
-            }
-        }
-
-        // If no start time found in either, nothing to do
-        if (!startTimeMs && !openSession) {
-            return;
-        }
-
-        const now = Date.now();
-        const durationMs = now - (startTimeMs || now); // Should not happen if logic holds
-        const durationMinutes = Math.floor(durationMs / (1000 * 60));
-
-        // 3. Persist/Update DB
-        if (dbSessionId) {
-            await prisma.voiceSession.update({
-                where: { id: dbSessionId },
-                data: { endTime: new Date() }
-            });
-        } else if (startTimeMs) {
-            // Edge case: In Redis but not DB (DB write failed at start?)
-            // Record the finished session now.
-            await prisma.voiceSession.create({
-                data: {
-                    userId: user.id,
-                    guildId,
-                    startTime: new Date(startTimeMs),
-                    endTime: new Date()
-                }
-            });
-        }
-
-        // 4. Award Points
-        if (durationMinutes > 0) {
-            console.log(`Awarding voice points to ${discordId} for ${durationMinutes} minutes.`);
-            await StockService.trackVoice(user.id, durationMinutes);
-        }
-
-        // 5. Cleanup Redis
-        await redis.del(key);
-        console.log(`Stopped voice tracking for ${discordId} in ${guildId}`);
     }
 
-    // Optional: Cleanup method if needed
     async stopTrackingForGuild(guildId: string) {
-        console.log(`stopTrackingForGuild called for ${guildId} - handled by DB/Redis persistence logic.`);
+        const stream = redis.scanStream({ match: `voice:*:${guildId}:*`, count: 100 });
+        stream.on('data', (keys: string[]) => {
+            if (keys.length) {
+                const pipeline = redis.pipeline();
+                keys.forEach(key => pipeline.del(key));
+                pipeline.exec();
+            }
+        });
     }
 }
 

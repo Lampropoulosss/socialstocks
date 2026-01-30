@@ -29,6 +29,13 @@ module.exports = {
         const buyerId = interaction.user.id;
         const guildId = interaction.guildId!;
 
+
+        // 1. New Check: Prevent Self-Investment
+        if (targetUser.id === buyerId) {
+            await interaction.editReply("🚫 You cannot buy stock in yourself. That would be insider trading!");
+            return;
+        }
+
         if (targetUser.bot) {
             await interaction.editReply("You cannot buy stock in bots.");
             return;

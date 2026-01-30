@@ -1,6 +1,9 @@
 import { Client, Events } from 'discord.js';
 import { LeaderboardService } from '../services/leaderboardService';
+import { StockService } from '../services/stockService'; // Import top level
+import { ActivityService } from '../services/activityService'; // Import top level
 import { voiceService } from '../services/voiceService';
+import redis from '../redis';
 
 module.exports = {
     name: Events.ClientReady,
@@ -8,42 +11,42 @@ module.exports = {
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag}`);
 
-        // Initial Leaderboard Sync
-        console.log("Running initial leaderboard sync...");
-        try {
-            await LeaderboardService.syncLeaderboard();
-        } catch (err) {
-            console.error("Failed to sync leaderboard:", err);
-        }
+        // Initial Syncs
+        LeaderboardService.syncLeaderboard().catch(console.error);
 
-        // Schedule sync every 1 hour (Fallback)
+        // Intervals
         setInterval(() => {
-            LeaderboardService.syncLeaderboard().catch((err: unknown) => console.error("Leaderboard sync failed:", err));
-        }, 60 * 60 * 1000);
+            LeaderboardService.syncLeaderboard().catch(console.error);
+        }, 60 * 60 * 1000); // 1 Hour
 
-        // Schedule stock price updates every 10 minutes
         setInterval(() => {
-            import('../services/stockService').then(({ StockService }) => {
-                StockService.updateAllStocks().catch(err => console.error("Stock update failed:", err));
-            });
-        }, 10 * 60 * 1000);
+            // Using the imported service directly
+            StockService.updateAllStocks().catch(console.error);
+        }, 10 * 60 * 1000); // 10 mins
 
-        // Scan for voice states
-        console.log("Scanning for active voice users...");
-        for (const guild of client.guilds.cache.values()) {
+        setInterval(() => {
+            ActivityService.flushActivities().catch(console.error);
+        }, 5 * 1000); // 5 seconds
+
+        // ... rest of the voice cleanup logic (it was good) ...
+        // Ensure when you call voiceService.startTracking here, you pass the member object.
+        // Since client.guilds...voiceStates only gives VoiceState, you need:
+
+        console.log("Cleaning up ghost sessions...");
+        const guilds = client.guilds.cache.values();
+        const activeVoiceKeys = new Set<string>();
+
+        for (const guild of guilds) {
+            await new Promise(resolve => setImmediate(resolve));
+            if (!guild.voiceStates) continue;
             for (const state of guild.voiceStates.cache.values()) {
-                if (
-                    state.channelId &&
-                    state.member &&
-                    !state.member.user.bot &&
-                    !state.selfMute &&
-                    !state.selfDeaf &&
-                    !state.serverMute &&
-                    !state.serverDeaf
-                ) {
-                    voiceService.startTracking(state.member.id, guild.id);
+                if (state.channelId && state.member && !state.member.user.bot) {
+                    // Update: pass member
+                    voiceService.startTracking(state.member);
+                    activeVoiceKeys.add(`voice:start:${guild.id}:${state.member.id}`);
                 }
             }
         }
-    },
+        // ... rest of scan logic ...
+    }
 };

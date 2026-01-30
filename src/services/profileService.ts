@@ -31,7 +31,11 @@ export class ProfileService {
             .addFields(
                 { name: 'Balance', value: `$${Number(user.balance).toFixed(2)}`, inline: true },
                 { name: 'Your Stock Price', value: `$${Number(user.stock?.currentPrice || 0).toFixed(2)}`, inline: true },
-                { name: 'Shares Owned (Yourself)', value: `${user.stock?.totalShares}`, inline: true },
+                {
+                    name: 'Shares Owned (Yourself)',
+                    value: `${user.portfolio.find(p => p.stockId === user.stock?.id)?.shares || 0} / ${user.stock?.totalShares || 0}`,
+                    inline: true
+                },
             );
 
         if (user.portfolio.length > 0) {

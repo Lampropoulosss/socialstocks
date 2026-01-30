@@ -9,7 +9,7 @@ export class MarketService {
             take: 10,
             include: {
                 user: true,
-                history: { orderBy: { recordedAt: 'desc' }, take: 1 } // Fetch last history entry
+
             }
         });
 
@@ -19,12 +19,7 @@ export class MarketService {
 
         const description = stocks.map((s, i) => {
             const current = Number(s.currentPrice);
-            const previous = s.history[0] ? Number(s.history[0].price) : current;
-            let arrow = "➖";
-            if (current > previous) arrow = "📈";
-            if (current < previous) arrow = "📉";
-
-            return `${i + 1}. **${s.symbol}** (${s.user.username}): $${current.toFixed(2)} ${arrow}`;
+            return `${i + 1}. **${s.symbol}** (${s.user.username}): $${current.toFixed(2)}`;
         }).join('\n');
 
         embed.setDescription(description || "No active stocks yet.");

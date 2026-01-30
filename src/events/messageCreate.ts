@@ -1,7 +1,6 @@
 import { Events, Message } from 'discord.js';
 import redis, { checkMessageFlow } from '../redis';
-import { ActivityData, ActivityService } from '../services/activityService';
-import { ActivityType } from '@prisma/client';
+import { ActivityData, ActivityService, ActivityType } from '../services/activityService';
 
 module.exports = {
     name: Events.MessageCreate,

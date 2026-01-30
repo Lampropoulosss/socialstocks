@@ -22,17 +22,5 @@ export class StockService {
         console.log("Market decay applied to inactive stocks.");
     }
 
-    // Kept for VoiceService compatibility
-    static async trackVoice(userId: string, minutes: number = 1) {
-        const { ActivityService } = require('./activityService');
-        await ActivityService.bufferActivity({
-            userId,
-            // Assuming strict types, you might need to cast or fix interface if 'userId' isn't on ActivityData
-            // Based on your previous file, ActivityData uses 'discordId', but internal tracking might use internal ID.
-            // If trackVoice is called with internal UUID, ensure ActivityService handles it or convert it.
-            // For now, mapping broadly:
-            type: 'VOICE_MINUTE',
-            value: 60 * minutes
-        } as any);
-    }
+    // trackVoice removed to prevent circular dependency
 }

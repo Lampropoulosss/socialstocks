@@ -20,23 +20,10 @@ model User {
   stock       Stock?
   portfolio   Portfolio[]
   transactions Transaction[]
-  activityLogs ActivityLog[]
-  voiceSessions VoiceSession[]
+
 
   @@unique([discordId, guildId]) // One user profile per server
   @@index([guildId]) // For efficient cleanup
-}
-
-model VoiceSession {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  guildId   String
-  startTime DateTime @default(now())
-  endTime   DateTime?
-  
-  @@index([userId, guildId])
-  @@index([userId, endTime]) // For finding open sessions
 }
 
 model Stock {
@@ -48,7 +35,7 @@ model Stock {
   volatility  Decimal  @default(0.05) @db.Decimal(5, 4) // How much it swings
   totalShares Int      @default(1000)
   
-  history     StockHistory[]
+
   portfolios  Portfolio[]
   transactions Transaction[]
   createdAt   DateTime @default(now())
@@ -82,35 +69,9 @@ model Transaction {
   createdAt DateTime @default(now())
 }
 
-model StockHistory {
-  id        String   @id @default(uuid())
-  stockId   String
-  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
-  price     Decimal  @db.Decimal(10, 2)
-  recordedAt DateTime @default(now())
-}
 
-// Track activity for price calculation
-model ActivityLog {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      ActivityType
-  value     Int      // e.g. message length, voice seconds
-  metadata  Json?    // Context (channel, message content hash for spam check)
-  processed Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-}
 
 enum TransactionType {
   BUY
   SELL
-}
-
-enum ActivityType {
-  MESSAGE
-  REACTION_RECEIVED
-  VOICE_MINUTE
 }

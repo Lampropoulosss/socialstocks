@@ -1,50 +1,64 @@
-import { StockService } from './stockService';
-import prisma from '../prisma';
+import { GuildMember } from 'discord.js';
 import redis from '../redis';
+import { ActivityService, ActivityType } from './activityService';
 
 class VoiceService {
-    // Key prefix: voice:start:{guildId}:{discordId}
+    // Added username parameter
+    async startTracking(member: GuildMember) {
+        if (member.user.bot) return;
 
-    // O(1) - No DB connection at all
-    async startTracking(discordId: string, guildId: string) {
-        const key = `voice:start:${guildId}:${discordId}`;
+        const key = `voice:start:${member.guild.id}:${member.id}`;
+        const metaKey = `voice:meta:${member.guild.id}:${member.id}`;
         const now = Date.now().toString();
-        // Only write to Redis. 
-        // We don't care if they are in the DB yet. We will check that on stopTracking.
-        const set = await redis.setnx(key, now);
 
-        if (set) {
-            console.log(`Started voice tracking for ${discordId} in ${guildId} (Redis-only)`);
-        }
+        // Use a transaction (pipeline) to set start time AND cache username
+        const pipeline = redis.pipeline();
+        pipeline.setnx(key, now);
+        // Cache username for 24h just in case, to ensure we have it when they leave
+        pipeline.set(metaKey, member.user.username, 'EX', 86400);
+        await pipeline.exec();
     }
 
     async stopTracking(discordId: string, guildId: string) {
         const key = `voice:start:${guildId}:${discordId}`;
-        const startStr = await redis.get(key);
+        const metaKey = `voice:meta:${guildId}:${discordId}`;
+
+        // Fetch start time and username in one go
+        const [startStr, username] = await redis.mget(key, metaKey);
+
+        // Cleanup immediately
+        await redis.del(key, metaKey);
+
         if (!startStr) return;
 
-        const startTimeMs = parseInt(startStr);
+        const startTimeMs = parseInt(startStr, 10);
+        if (isNaN(startTimeMs)) return;
+
         const durationMinutes = Math.floor((Date.now() - startTimeMs) / 60000);
-
-        await redis.del(key);
-
         if (durationMinutes < 1) return;
 
-        // OPTIMIZATION: Do NOT query Prisma here. 
-        // Push the raw Discord ID to the buffer.
-        const { ActivityService } = require('./activityService');
+        // Use cached username, or fallback to "Unknown" (which will trigger a DB fetch in ActivityService if logic allows)
+        // Ideally, ActivityService should look up the user if username is "Unknown"
+        const finalUsername = username || "Unknown";
+
         await ActivityService.bufferActivity({
-            discordId,   // Pass Discord ID
-            guildId,     // Pass Guild ID
-            username: "Unknown", // We don't need it for updates
-            type: "VOICE_MINUTE", // Use string literal or import ActivityType if available, or force cast
-            value: durationMinutes * 2, // Pre-calculate score or minutes (User code suggested minutes * 2, let's stick to simple minutes if logic is elsewhere, but request says value: durationMinutes * 2)
+            discordId,
+            guildId,
+            username: finalUsername,
+            type: ActivityType.VOICE_MINUTE,
+            value: durationMinutes * 2, // 2 points per minute
         });
     }
 
-    // Optional: Cleanup method if needed
     async stopTrackingForGuild(guildId: string) {
-        console.log(`stopTrackingForGuild called for ${guildId} - handled by DB/Redis persistence logic.`);
+        const stream = redis.scanStream({ match: `voice:*:${guildId}:*`, count: 100 });
+        stream.on('data', (keys: string[]) => {
+            if (keys.length) {
+                const pipeline = redis.pipeline();
+                keys.forEach(key => pipeline.del(key));
+                pipeline.exec();
+            }
+        });
     }
 }
 

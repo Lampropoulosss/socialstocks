@@ -4,10 +4,8 @@ import { voiceService } from '../services/voiceService';
 module.exports = {
     name: Events.VoiceStateUpdate,
     async execute(oldState: VoiceState, newState: VoiceState) {
-        const userId = newState.member?.id;
-        const guildId = newState.guild.id;
-
-        if (!userId || newState.member?.user.bot) return;
+        const member = newState.member;
+        if (!member || member.user.bot) return;
 
         const shouldTrack = (state: VoiceState) => {
             return (
@@ -23,13 +21,12 @@ module.exports = {
         const isTracking = shouldTrack(newState);
 
         if (!wasTracking && isTracking) {
-            // Started being eligible (Joined unmuted OR Unmuted/Undeafened)
-            voiceService.startTracking(userId, guildId);
+            // Pass the whole member object to cache username
+            voiceService.startTracking(member);
         }
 
         if (wasTracking && !isTracking) {
-            // Stopped being eligible (Left OR Muted/Deafened)
-            voiceService.stopTracking(userId, guildId);
+            voiceService.stopTracking(member.id, member.guild.id);
         }
     },
 };

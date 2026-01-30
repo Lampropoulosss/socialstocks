@@ -1,7 +1,13 @@
 import redis from '../redis';
 import prisma from '../prisma';
-import { ActivityType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
+
+export enum ActivityType {
+    MESSAGE = 'MESSAGE',
+    REACTION_RECEIVED = 'REACTION_RECEIVED',
+    VOICE_MINUTE = 'VOICE_MINUTE'
+}
 
 export interface ActivityData {
     discordId: string;
@@ -15,6 +21,7 @@ export interface ActivityData {
 
 export class ActivityService {
     private static BUFFER_KEY = 'activity_buffer';
+    private static IS_FLUSHING = false;
 
     static async bufferActivity(data: ActivityData) {
         if (!data.createdAt) data.createdAt = Date.now();
@@ -22,116 +29,189 @@ export class ActivityService {
     }
 
     static async flushActivities() {
-        const BATCH_SIZE = 2000;
-        // @ts-ignore
-        const items = await redis.lpop(this.BUFFER_KEY, BATCH_SIZE);
+        if (this.IS_FLUSHING) return;
+        this.IS_FLUSHING = true;
 
-        if (!items || (Array.isArray(items) && items.length === 0)) return;
+        try {
+            const BATCH_SIZE = 2000;
+            // @ts-ignore
+            const items = await redis.lpop(this.BUFFER_KEY, BATCH_SIZE);
 
-        const rawLogs: ActivityData[] = (Array.isArray(items) ? items : [items])
-            .map(s => {
-                try { return JSON.parse(s); } catch { return null; }
-            })
-            .filter(i => i !== null);
-
-        if (rawLogs.length === 0) return;
-
-        // 1. Aggregate Scores In-Memory
-        const userScoreMap = new Map<string, number>();
-        const uniqueKeys = new Set<string>();
-
-        for (const log of rawLogs) {
-            const key = `${log.discordId}:${log.guildId}`;
-            uniqueKeys.add(key);
-
-            let points = 0;
-            if (log.type === 'MESSAGE') points = Math.min(log.value, 100) / 10;
-            else if (log.type === 'VOICE_MINUTE') points = log.value;
-            else if (log.type === 'REACTION_RECEIVED') points = 5;
-
-            userScoreMap.set(key, (userScoreMap.get(key) || 0) + points);
-        }
-
-        // 2. Fetch Users & Current Stock State
-        const users = await prisma.user.findMany({
-            where: {
-                OR: Array.from(uniqueKeys).map(k => {
-                    const [d, g] = k.split(':');
-                    return { discordId: d, guildId: g };
-                })
-            },
-            select: {
-                id: true, discordId: true, guildId: true,
-                stock: { select: { id: true, currentPrice: true, volatility: true } }
+            if (!items || (Array.isArray(items) && items.length === 0)) {
+                this.IS_FLUSHING = false;
+                return;
             }
-        });
 
-        const stockUpdates: string[] = [];
-        const historyInserts: { stockId: string, price: string, recordedAt: Date }[] = [];
-        const leaderboardUpdates: { userId: string, guildId: string }[] = [];
+            const rawLogs: ActivityData[] = (Array.isArray(items) ? items : [items])
+                .map(s => { try { return JSON.parse(s); } catch { return null; } })
+                .filter(i => i !== null);
 
-        for (const user of users) {
-            const key = `${user.discordId}:${user.guildId}`;
-            const score = userScoreMap.get(key);
+            if (rawLogs.length === 0) {
+                this.IS_FLUSHING = false;
+                return;
+            }
 
-            if (!score || !user.stock) continue;
+            // 1. Aggregate Scores
+            const userScoreMap = new Map<string, number>();
+            const userMetaMap = new Map<string, { discordId: string, guildId: string, username: string }>();
 
-            // Calculate Price
-            const currentPrice = new Decimal(Number(user.stock.currentPrice));
-            const volatility = Number(user.stock.volatility);
+            for (const log of rawLogs) {
+                const key = `${log.discordId}:${log.guildId}`;
 
-            // Growth Logic
-            let change = currentPrice.times(volatility * score * 0.01);
-            let newPrice = currentPrice.plus(change);
+                // If we have a valid username, update the meta map. 
+                // This ensures if one log has "Unknown" but another has "Name", we use "Name".
+                if (!userMetaMap.has(key) || (userMetaMap.get(key)!.username === 'Unknown' && log.username !== 'Unknown')) {
+                    userMetaMap.set(key, {
+                        discordId: log.discordId,
+                        guildId: log.guildId,
+                        username: log.username
+                    });
+                }
 
-            // Cap (Max 1.5x growth per flush)
-            if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
+                let points = 0;
+                if (log.type === 'MESSAGE') points = Math.min(log.value, 100) / 10;
+                else if (log.type === 'VOICE_MINUTE') points = log.value;
+                else if (log.type === 'REACTION_RECEIVED') points = 5;
 
-            const newPriceStr = newPrice.toFixed(2);
+                userScoreMap.set(key, (userScoreMap.get(key) || 0) + points);
+            }
 
-            // A. Prepare Stock Update
-            stockUpdates.push(`('${user.stock.id}', ${newPriceStr})`);
-
-            // B. Prepare History Entry (CRITICAL FIX)
-            historyInserts.push({
-                stockId: user.stock.id,
-                price: newPriceStr,
-                recordedAt: new Date()
+            const allKeys = Array.from(userMetaMap.keys());
+            const identifiers = allKeys.map(k => {
+                const [discordId, guildId] = k.split(':');
+                return { discordId, guildId };
             });
 
-            // C. Prepare Leaderboard Update
-            leaderboardUpdates.push({ userId: user.id, guildId: user.guildId });
-        }
-
-        // 3. Execute Database Writes
-        if (stockUpdates.length > 0) {
-            // Bulk Update Stock Prices
-            await prisma.$executeRawUnsafe(`
-                UPDATE "Stock" as s
-                SET "currentPrice" = v.price::decimal, "updatedAt" = NOW()
-                FROM (VALUES ${stockUpdates.join(',')}) as v(id, price)
-                WHERE s.id = v.id::uuid
-            `);
-
-            // Bulk Insert History (Fixes missing graphs)
-            await prisma.stockHistory.createMany({
-                data: historyInserts
+            // 2. Fetch or Create Users (Upsert Logic)
+            // We fetch first to get the Internal UUIDs needed for Stock updates
+            let existingUsers = await prisma.user.findMany({
+                where: { OR: identifiers },
+                select: { id: true, discordId: true, guildId: true, stock: { select: { id: true, currentPrice: true, volatility: true } } }
             });
 
-            console.log(`Processed ${rawLogs.length} logs. Updated ${stockUpdates.length} stocks.`);
+            const existingKeySet = new Set(existingUsers.map(u => `${u.discordId}:${u.guildId}`));
+            const missingKeys = allKeys.filter(k => !existingKeySet.has(k));
 
-            // Trigger Leaderboard (Non-blocking)
-            if (leaderboardUpdates.length > 0) {
-                const { LeaderboardService } = require('./leaderboardService');
-                leaderboardUpdates.forEach(u => {
-                    LeaderboardService.updateUser(u.userId, u.guildId).catch(console.error);
+            if (missingKeys.length > 0) {
+                console.log(`Creating ${missingKeys.length} new users...`);
+
+                // Wrap in try/catch to handle concurrency issues (Unique Constraints)
+                try {
+                    await prisma.$transaction(async (tx) => {
+                        for (const k of missingKeys) {
+                            const meta = userMetaMap.get(k)!;
+                            const safeUsername = meta.username === 'Unknown' ? `User-${meta.discordId.slice(-4)}` : meta.username;
+
+                            // 1. Create User
+                            const newUser = await tx.user.create({
+                                data: {
+                                    discordId: meta.discordId,
+                                    guildId: meta.guildId,
+                                    username: safeUsername,
+                                }
+                            });
+
+                            // 2. Create Stock
+                            const newStock = await tx.stock.create({
+                                data: {
+                                    userId: newUser.id,
+                                    symbol: safeUsername.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'X'),
+                                    currentPrice: 10.00,
+                                    volatility: 0.05,
+                                    totalShares: 1000
+                                }
+                            });
+
+                            // 3. Give them their own shares (The Fix)
+                            await tx.portfolio.create({
+                                data: {
+                                    ownerId: newUser.id,
+                                    stockId: newStock.id,
+                                    shares: 1000, // They own 100% initially
+                                    averageBuyPrice: 0.00 // Founder shares cost nothing
+                                }
+                            });
+                        }
+                    });
+                } catch (e: any) {
+                    // P2002 = Unique constraint violation.
+                    // If this happens, it means another instance created the user already.
+                    // We can safely ignore and just let the re-fetch handle it.
+                    if (e.code === 'P2002') {
+                        console.warn("Race condition detected during user creation (Unique Constraint). Skipping creation step.");
+                    } else {
+                        console.error("Error creating users:", e);
+                    }
+                }
+
+                // Re-fetch everything to include the new users
+                existingUsers = await prisma.user.findMany({
+                    where: { OR: identifiers },
+                    select: { id: true, discordId: true, guildId: true, stock: { select: { id: true, currentPrice: true, volatility: true } } }
                 });
             }
-        }
 
-        // Recurse if buffer is full
-        if (items.length === BATCH_SIZE) {
-            setImmediate(() => this.flushActivities());
+            // 3. Calculate Updates
+
+            const leaderboardUpdates: { userId: string, guildId: string }[] = [];
+
+            // Safer SQL Construction
+            // We map internal Stock UUID -> New Price
+            const updatesMap = new Map<string, string>();
+
+            for (const user of existingUsers) {
+                const key = `${user.discordId}:${user.guildId}`;
+                const score = userScoreMap.get(key);
+                if (!score || !user.stock) continue;
+
+                const currentPrice = new Decimal(Number(user.stock.currentPrice));
+                const volatility = Number(user.stock.volatility);
+
+                let change = currentPrice.times(volatility * score * 0.01);
+                let newPrice = currentPrice.plus(change);
+
+                if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
+                const newPriceStr = newPrice.toFixed(2);
+
+                updatesMap.set(user.stock.id, newPriceStr);
+
+
+
+                leaderboardUpdates.push({ userId: user.id, guildId: user.guildId });
+            }
+
+            // 4. Execute Writes
+            if (updatesMap.size > 0) {
+                // Construct a giant CASE statement for the update. 
+                // This is safer than joining raw strings in a VALUES clause if not careful.
+                // However, for bulk updates, unnest/values is faster. 
+                // Let's use Prisma.join to generate the raw query safely.
+
+                const updateValues = Array.from(updatesMap.entries()).map(([id, price]) =>
+                    Prisma.sql`(${id}::text, ${price}::decimal)`
+                );
+
+                await prisma.$executeRaw`
+                        UPDATE "Stock" as s
+                        SET "currentPrice" = v.price, "updatedAt" = NOW()
+                        FROM (VALUES ${Prisma.join(updateValues)}) as v(id, price)
+                        WHERE s.id = v.id
+                    `;
+
+                // Lazy load LeaderboardService to avoid circular dependency issues at runtime
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { LeaderboardService } = require('./leaderboardService');
+                // Fire and forget leaderboard updates (or batch them if this becomes too slow)
+                leaderboardUpdates.forEach(u => LeaderboardService.updateUser(u.userId, u.guildId).catch(console.error));
+            }
+
+        } catch (error) {
+            console.error("Flush Error:", error);
+            // Optional: push failed items back to redis?
+        } finally {
+            this.IS_FLUSHING = false;
+            const len = await redis.llen(this.BUFFER_KEY);
+            if (len > 0) setImmediate(() => this.flushActivities());
         }
     }
 }

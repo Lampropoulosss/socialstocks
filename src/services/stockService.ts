@@ -12,11 +12,15 @@ export class StockService {
     static async applyMarketDecay() {
         // Decay stocks that haven't been updated in 1 hour
         // Floor price at 0.10
+        // OLD: GREATEST("currentPrice" * 0.95, 0.10)
+        // NEW: GREATEST("currentPrice" * 0.95, 10.00)
+
         const result = await prisma.$executeRaw`
             UPDATE "Stock" 
-            SET "currentPrice" = GREATEST("currentPrice" * 0.95, 0.10),
+            SET "currentPrice" = GREATEST("currentPrice" * 0.95, 10.00),
                 "updatedAt" = NOW() 
             WHERE "updatedAt" < NOW() - INTERVAL '1 hour'
+            AND "currentPrice" > 10.00 -- Optimization: Don't update if already at floor
         `;
         // Note: result is a number (count) or object depending on driver
         console.log("Market decay applied to inactive stocks.");

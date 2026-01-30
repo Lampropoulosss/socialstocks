@@ -1,9 +1,11 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import Decimal from 'decimal.js';
 import prisma from '../prisma';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
 export class ProfileService {
     static async getProfileResponse(userId: string, guildId: string, username: string) {
+        // 1. Fetch User, Stock, and Portfolio
         const user = await prisma.user.findUnique({
             where: {
                 discordId_guildId: {
@@ -15,36 +17,71 @@ export class ProfileService {
                 stock: true,
                 portfolio: {
                     include: {
-                        stock: true // Join stock info to see current prices
+                        stock: true
                     }
                 }
             }
         });
 
         if (!user) {
-            return null; // Handle null in caller
+            return null;
         }
 
+        // 2. Calculate Stats
+        const balance = new Decimal(String(user.balance));
+        const stockPrice = new Decimal(String(user.stock?.currentPrice || 0));
+        const totalShares = new Decimal(user.stock?.totalShares || 1000);
+
+        // Market Cap logic
+        const marketCap = stockPrice.times(totalShares);
+
+        // 3. Build Embed
         const embed = new EmbedBuilder()
             .setTitle(`${username}'s Profile`)
             .setColor(Colors.Primary)
             .addFields(
-                { name: 'Balance', value: `$${Number(user.balance).toFixed(2)}`, inline: true },
-                { name: 'Your Stock Price', value: `$${Number(user.stock?.currentPrice || 0).toFixed(2)}`, inline: true },
                 {
-                    name: 'Shares Owned (Yourself)',
-                    value: `${user.portfolio.find(p => p.stockId === user.stock?.id)?.shares || 0} / ${user.stock?.totalShares || 0}`,
+                    name: 'Balance',
+                    value: `$${balance.toFixed(2)}`,
+                    inline: true
+                },
+                {
+                    name: 'Stock Price',
+                    value: `$${stockPrice.toFixed(2)}`,
+                    inline: true
+                },
+                {
+                    name: 'Market Cap',
+                    value: `$${marketCap.toFixed(2)}`,
                     inline: true
                 },
             );
 
+        // 4. Portfolio Formatting
         if (user.portfolio.length > 0) {
-            const portfolioDesc = user.portfolio.map(p => {
-                const currentValue = Number(p.stock.currentPrice);
-                return `**${p.stock.symbol}**: ${p.shares} shares @ $${Number(p.averageBuyPrice).toFixed(2)} (Cur: $${currentValue.toFixed(2)})`;
+            // Sort: Highest Value First
+            const sortedPortfolio = [...user.portfolio].sort((a, b) => {
+                const valA = Number(a.stock.currentPrice) * a.shares;
+                const valB = Number(b.stock.currentPrice) * b.shares;
+                return valB - valA;
+            });
+
+            const portfolioDesc = sortedPortfolio.map(p => {
+                const currentPrice = new Decimal(String(p.stock.currentPrice));
+                const avgBuyPrice = new Decimal(String(p.averageBuyPrice));
+
+                // Calculate Profit %
+                const profitPct = currentPrice.minus(avgBuyPrice).div(avgBuyPrice).times(100);
+
+                // FIX: Use .gte(0) (Greater Than or Equal to 0) instead of .isPositive()
+                const emoji = profitPct.gte(0) ? '🟢' : '🔴';
+
+                return `**${p.stock.symbol}**: ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
             }).join('\n');
 
-            embed.addFields({ name: 'Portfolio', value: portfolioDesc.substring(0, 1024) || "None" });
+            embed.addFields({ name: 'Your Portfolio', value: portfolioDesc.substring(0, 1024) || "None" });
+        } else {
+            embed.addFields({ name: 'Your Portfolio', value: "You don't own any stocks yet. Use `/market` to find some!" });
         }
 
         const row = new ActionRowBuilder<ButtonBuilder>()

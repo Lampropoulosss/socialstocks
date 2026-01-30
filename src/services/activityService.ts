@@ -122,15 +122,8 @@ export class ActivityService {
                                 }
                             });
 
-                            // 3. Give them their own shares (The Fix)
-                            await tx.portfolio.create({
-                                data: {
-                                    ownerId: newUser.id,
-                                    stockId: newStock.id,
-                                    shares: 1000, // They own 100% initially
-                                    averageBuyPrice: 0.00 // Founder shares cost nothing
-                                }
-                            });
+                            // REMOVED: The step where we create a Portfolio for the user.
+                            // They now start with 0 shares of themselves.
                         }
                     });
                 } catch (e: any) {
@@ -171,6 +164,12 @@ export class ActivityService {
                 let newPrice = currentPrice.plus(change);
 
                 if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
+
+                // NEW: Floor protection
+                // If for some reason volatility was negative (it isn't currently), this safeguards it.
+                if (newPrice.lessThan(10.00)) {
+                    newPrice = new Decimal(10.00);
+                }
                 const newPriceStr = newPrice.toFixed(2);
 
                 updatesMap.set(user.stock.id, newPriceStr);

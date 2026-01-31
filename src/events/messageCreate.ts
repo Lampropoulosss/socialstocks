@@ -1,6 +1,6 @@
 import { Events, Message } from 'discord.js';
-import redis, { checkMessageFlow } from '../redis';
-import { ActivityData, ActivityService, ActivityType } from '../services/activityService';
+import { checkMessageFlow } from '../redis';
+import { ActivityService, ActivityType } from '../services/activityService';
 
 module.exports = {
     name: Events.MessageCreate,
@@ -11,21 +11,14 @@ module.exports = {
         const guildId = message.guild.id;
         const now = Date.now();
 
-        // 1. Single Atomic Lua Call (Jail check, Spam check, Cooldown check)
-        // We hash content here to save bandwidth sending massive strings to Redis
-        const contentHash = require('crypto').createHash('md5').update(message.content).digest('hex');
+        // 1. Single Atomic Lua Call
+        const [status] = (await checkMessageFlow(guildId, discordId, now)) as [string, string?];
 
-        // Pass a "1" as the last arg to say "This is a message event"
-        const [status, reason] = (await checkMessageFlow(guildId, discordId, contentHash, now)) as [string, string?];
-
-        if (status === 'JAILED' || status === 'TRIGGER_JAIL') {
-            // Optional: DM user or generic Jail logic
+        if (status === 'JAILED' || status === 'TRIGGER_JAIL' || status === 'COOLDOWN') {
             return;
         }
-        if (status === 'DUPLICATE') return; // Silent ignore
 
-        // 2. Buffer Activity using DISCORD ID (Not Internal ID)
-        // We do not await this. Fire and forget.
+        // 2. Buffer Activity
         ActivityService.bufferActivity({
             discordId: discordId,
             guildId: guildId,

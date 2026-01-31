@@ -6,7 +6,8 @@ import { PrismaPg } from '@prisma/adapter-pg';
 const connectionString = process.env.DATABASE_URL;
 
 const pool = new Pool({
-    connectionString
+    connectionString,
+    max: process.env.DB_POOL_SIZE ? parseInt(process.env.DB_POOL_SIZE) : 10
 });
 
 // 2. Create the Prisma Adapter

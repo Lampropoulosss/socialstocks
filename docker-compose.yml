@@ -1,19 +1,38 @@
 services:
-  app:
-    build:
-      context: .
+  bot:
+    build: .
     restart: always
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
+      - REDIS_CACHE_URL=${REDIS_CACHE_URL}
+      - REDIS_QUEUE_URL=${REDIS_QUEUE_URL}
       - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - CLIENT_ID=${CLIENT_ID}
+      - DB_POOL_SIZE=10
+      - TOTAL_SHARDS=2  # Total shards for the whole bot
+      - CLUSTERS=2      # How many containers/replicas are you running?
+    command: npm start
     depends_on:
       - postgres
-      - redis
-    command: sh -c "npx prisma migrate deploy && npm start"
-    volumes:
-      - ./logs:/usr/src/app/logs
+      - redis-cache
+      - redis-queue
+    deploy:
+      replicas: 2
+
+  worker:
+    build: .
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_CACHE_URL=${REDIS_CACHE_URL}
+      - REDIS_QUEUE_URL=${REDIS_QUEUE_URL}
+      - DB_POOL_SIZE=10
+    command: npm run worker 
+    depends_on:
+      - postgres
+      - redis-cache
+      - redis-queue
+    deploy:
+      replicas: 2
 
   postgres:
     image: postgres:15-alpine
@@ -22,19 +41,29 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    command: postgres -c 'max_connections=200'
 
-  redis:
+  # Instance 1: Cache (Transient Data)
+  # Policy: Delete oldest keys when full.
+  redis-cache:
     image: redis:alpine
     restart: always
-    ports:
-      - "6379:6379"
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save ""
     volumes:
-      - redis_data:/data
+      - redis_cache_data:/data
+
+  # Instance 2: Queue (Critical Data)
+  # Policy: Crash if full (don't delete data silently), but persist to disk.
+  redis-queue:
+    image: redis:alpine
+    restart: always
+    command: redis-server --maxmemory 2gb --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - redis_queue_data:/data
 
 volumes:
   postgres_data:
-  redis_data:
+  redis_cache_data:
+  redis_queue_data:

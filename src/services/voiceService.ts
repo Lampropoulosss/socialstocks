@@ -1,5 +1,5 @@
 import { GuildMember } from 'discord.js';
-import redis from '../redis';
+import { redisQueue } from '../redis';
 import { ActivityService, ActivityType } from './activityService';
 
 class VoiceService {
@@ -7,12 +7,12 @@ class VoiceService {
     async startTracking(member: GuildMember) {
         if (member.user.bot) return;
 
-        const key = `voice:start:${member.guild.id}:${member.id}`;
-        const metaKey = `voice:meta:${member.guild.id}:${member.id}`;
+        const key = `v:s:${member.guild.id}:${member.id}`;
+        const metaKey = `v:m:${member.guild.id}:${member.id}`;
         const now = Date.now().toString();
 
         // Use a transaction (pipeline) to set start time AND cache username
-        const pipeline = redis.pipeline();
+        const pipeline = redisQueue.pipeline();
         pipeline.setnx(key, now);
         // Cache username for 24h just in case, to ensure we have it when they leave
         pipeline.set(metaKey, member.user.username, 'EX', 86400);
@@ -20,14 +20,14 @@ class VoiceService {
     }
 
     async stopTracking(discordId: string, guildId: string) {
-        const key = `voice:start:${guildId}:${discordId}`;
-        const metaKey = `voice:meta:${guildId}:${discordId}`;
+        const key = `v:s:${guildId}:${discordId}`;
+        const metaKey = `v:m:${guildId}:${discordId}`;
 
         // Fetch start time and username in one go
-        const [startStr, username] = await redis.mget(key, metaKey);
+        const [startStr, username] = await redisQueue.mget(key, metaKey);
 
         // Cleanup immediately
-        await redis.del(key, metaKey);
+        await redisQueue.del(key, metaKey);
 
         if (!startStr) return;
 
@@ -51,10 +51,10 @@ class VoiceService {
     }
 
     async stopTrackingForGuild(guildId: string) {
-        const stream = redis.scanStream({ match: `voice:*:${guildId}:*`, count: 100 });
+        const stream = redisQueue.scanStream({ match: `voice:*:${guildId}:*`, count: 100 });
         stream.on('data', (keys: string[]) => {
             if (keys.length) {
-                const pipeline = redis.pipeline();
+                const pipeline = redisQueue.pipeline();
                 keys.forEach(key => pipeline.del(key));
                 pipeline.exec();
             }

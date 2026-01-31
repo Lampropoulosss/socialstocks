@@ -1,6 +1,6 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import prisma from '../prisma';
-import redis from '../redis';
+import { redisCache } from '../redis';
 import Decimal from 'decimal.js';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
@@ -47,10 +47,10 @@ export class LeaderboardService {
 
         // Add to Redis Sorted Set
         // Pass number to Redis (loss of precision is acceptable for leaderboard sorting, but we try to keep it close)
-        await redis.zadd(key, netWorth.toNumber(), user.id);
+        await redisCache.zadd(key, netWorth.toNumber(), user.id);
 
         // Cache username for quick lookup
-        await redis.set(`user:${user.id}:username`, user.username, 'EX', 86400);
+        await redisCache.set(`user:${user.id}:username`, user.username, 'EX', 86400);
     }
 
     /**
@@ -98,7 +98,7 @@ export class LeaderboardService {
                 }
             });
 
-            const pipeline = redis.pipeline();
+            const pipeline = redisCache.pipeline();
 
             for (const user of usersWithData) {
                 const key = `${this.LEADERBOARD_KEY_PREFIX}:${user.guildId}`;
@@ -130,7 +130,7 @@ export class LeaderboardService {
         const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
 
         // Get top users (highest score first)
-        const result = await redis.zrevrange(key, 0, top - 1, 'WITHSCORES');
+        const result = await redisCache.zrevrange(key, 0, top - 1, 'WITHSCORES');
 
         const leaderboard = [];
         for (let i = 0; i < result.length; i += 2) {
@@ -138,7 +138,7 @@ export class LeaderboardService {
             const netWorth = parseFloat(result[i + 1]);
 
             // Try to get username from cache
-            let username = await redis.get(`user:${userId}:username`);
+            let username = await redisCache.get(`user:${userId}:username`);
 
             // Fallback to DB if missing
             if (!username) {

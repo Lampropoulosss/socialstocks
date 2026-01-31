@@ -30,7 +30,6 @@ module.exports = {
         const guildId = interaction.guildId!;
 
 
-        // 1. New Check: Prevent Self-Investment
         if (targetUser.id === buyerId) {
             await interaction.editReply("🚫 You cannot buy stock in yourself. That would be insider trading!");
             return;
@@ -41,7 +40,6 @@ module.exports = {
             return;
         }
 
-        // Fetch Buyer to check existence/balance (pre-check)
         const buyer = await prisma.user.findUnique({
             where: {
                 discordId_guildId: { discordId: buyerId, guildId }
@@ -55,8 +53,6 @@ module.exports = {
 
         try {
             const result = await prisma.$transaction(async (tx) => {
-                // 1. Fetch Target User AND their stock using Discord ID
-                // Fixes the ID mismatch bug by querying via discordId_guildId
                 const targetUserDb = await tx.user.findUnique({
                     where: {
                         discordId_guildId: { discordId: targetUser.id, guildId }
@@ -69,10 +65,8 @@ module.exports = {
                 }
 
                 const currentStock = targetUserDb.stock;
-                // Use Decimal.js for precision math
                 const currentPrice = new Decimal(String(currentStock.currentPrice));
 
-                // Anti-Snipe Check
                 if (maxPriceInput) {
                     const maxPrice = new Decimal(maxPriceInput);
                     if (currentPrice.greaterThan(maxPrice)) {
@@ -82,7 +76,6 @@ module.exports = {
 
                 const cost = currentPrice.times(amount);
 
-                // 2. Lock & Check Buyer
                 const freshBuyer = await tx.user.findUnique({
                     where: { id: buyer.id }
                 });
@@ -93,21 +86,17 @@ module.exports = {
                     throw new Error(`Insufficient funds. Cost: $${cost.toFixed(2)}, Balance: $${balance.toFixed(2)}`);
                 }
 
-                // 3. Deduct balance
                 await tx.user.update({
                     where: { id: buyer.id },
-                    data: { balance: balance.minus(cost).toString() } // Prisma handles Decimal object
+                    data: { balance: balance.minus(cost).toString() }
                 });
 
-                // Update Portfolio
                 const portfolio = await tx.portfolio.findUnique({
                     where: { ownerId_stockId: { ownerId: buyer.id, stockId: currentStock.id } }
                 });
 
                 if (portfolio) {
-                    // Update average buy price
                     const totalShares = portfolio.shares + amount;
-                    // Calculate weighted average: ((oldAvg * oldShares) + cost) / newTotalShares
                     const oldTotalCost = new Decimal(String(portfolio.averageBuyPrice)).times(portfolio.shares);
                     const newAverage = oldTotalCost.plus(cost).div(totalShares);
 
@@ -129,7 +118,6 @@ module.exports = {
                     });
                 }
 
-                // Log Transaction
                 await tx.transaction.create({
                     data: {
                         userId: buyer.id,
@@ -141,8 +129,6 @@ module.exports = {
                     }
                 });
 
-                // Trigger event-driven leaderboard update if possible, or leave for regular sync
-                // For now, we rely on the scheduled task or future optimizations
                 return { symbol: currentStock.symbol, shares: amount, cost, price: currentPrice };
             });
 

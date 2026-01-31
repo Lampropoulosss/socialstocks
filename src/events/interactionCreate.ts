@@ -40,8 +40,6 @@ module.exports = {
             }
 
             try {
-                // Defer first to prevent timeout
-                // Only defer if not already replied/deferred (though isButton check implies fresh)
                 if (!interaction.deferred && !interaction.replied) {
                     await interaction.deferUpdate();
                 }

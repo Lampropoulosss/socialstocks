@@ -23,7 +23,6 @@ module.exports = {
         const sellerDiscordId = interaction.user.id;
         const guildId = interaction.guildId!;
 
-        // Resolve internal IDs
         const seller = await prisma.user.findUnique({
             where: { discordId_guildId: { discordId: sellerDiscordId, guildId } }
         });
@@ -61,22 +60,16 @@ module.exports = {
         const tax = grossRevenue * TAX_RATE;
         const netRevenue = grossRevenue - tax;
 
-        // Profit calculation based on average buy price
-        // Note: Profit is Realized PnL. 
-        // Realized PnL = (Sell Price - Buy Price) * quantity - Tax?
-        // Usually Tax is an expense. So yes.
         const costBasis = Number(portfolio.averageBuyPrice) * amount;
         const profit = netRevenue - costBasis;
 
         try {
             await prisma.$transaction(async (tx) => {
-                // Add balance
                 await tx.user.update({
                     where: { id: sellerId },
                     data: { balance: { increment: netRevenue } }
                 });
 
-                // Update Portfolio
                 if (portfolio.shares === amount) {
                     await tx.portfolio.delete({ where: { id: portfolio.id } });
                 } else {
@@ -86,15 +79,14 @@ module.exports = {
                     });
                 }
 
-                // Log Transaction
                 await tx.transaction.create({
                     data: {
                         userId: sellerId,
                         stockId: stock.id,
                         type: TransactionType.SELL,
                         shares: amount,
-                        pricePerShare: currentValue, // Market price at time of sale
-                        totalCost: netRevenue // Money received
+                        pricePerShare: currentValue,
+                        totalCost: netRevenue
                     }
                 });
             });

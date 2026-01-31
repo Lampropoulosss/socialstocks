@@ -11,14 +11,12 @@ module.exports = {
         const guildId = message.guild.id;
         const now = Date.now();
 
-        // 1. Single Atomic Lua Call
         const [status] = (await checkMessageFlow(guildId, discordId, now)) as [string, string?];
 
         if (status === 'JAILED' || status === 'TRIGGER_JAIL' || status === 'COOLDOWN') {
             return;
         }
 
-        // 2. Buffer Activity
         ActivityService.bufferActivity({
             discordId: discordId,
             guildId: guildId,

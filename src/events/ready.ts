@@ -1,4 +1,3 @@
-// src/events/ready.ts
 import { Client, Events } from 'discord.js';
 import { voiceService } from '../services/voiceService';
 
@@ -8,7 +7,6 @@ module.exports = {
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag} (Shard ${client.shard?.ids[0] ?? 0})`);
 
-        // Keep Voice Cleanup (This is local to the shard's cache)
         console.log("Cleaning up ghost sessions...");
         const guilds = client.guilds.cache.values();
 

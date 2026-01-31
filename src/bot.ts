@@ -17,7 +17,6 @@ for (const env of requiredEnv) {
     }
 }
 
-// Extend Client type to include commands
 declare module 'discord.js' {
     interface Client {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,16 +42,13 @@ client.prisma = prisma;
 client.redisCache = redisCache;
 client.redisQueue = redisQueue;
 
-// Load commands
 const commandsPath = path.join(__dirname, 'commands');
-// Ensure commands dir exists
 if (fs.existsSync(commandsPath)) {
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
     for (const file of commandFiles) {
         const filePath = path.join(commandsPath, file);
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const command = require(filePath); // In TS execution this might need dynamic import or transpilation handling
-        // utilizing require for simplicity in commonjs output, consider dynamic import() for ESM
+        const command = require(filePath);
         if ('data' in command && 'execute' in command) {
             client.commands.set(command.data.name, command);
         } else {
@@ -61,7 +57,6 @@ if (fs.existsSync(commandsPath)) {
     }
 }
 
-// Load events
 const eventsPath = path.join(__dirname, 'events');
 if (fs.existsSync(eventsPath)) {
     const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
@@ -77,7 +72,5 @@ if (fs.existsSync(eventsPath)) {
         }
     }
 }
-
-
 
 client.login(process.env.DISCORD_TOKEN);

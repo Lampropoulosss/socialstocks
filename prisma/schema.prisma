@@ -8,9 +8,9 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid()) // Internal UUID
-  discordId String   // External Discord ID
-  guildId   String   // Discord Guild ID
+  id        String   @id @default(uuid())
+  discordId String
+  guildId   String
   username  String
   balance   Decimal  @default(100.00) @db.Decimal(10, 2)
   createdAt DateTime @default(now())
@@ -22,8 +22,8 @@ model User {
   transactions Transaction[]
 
 
-  @@unique([discordId, guildId]) // One user profile per server
-  @@index([guildId]) // For efficient cleanup
+  @@unique([discordId, guildId])
+  @@index([guildId])
 }
 
 model Stock {
@@ -62,14 +62,12 @@ model Transaction {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   stockId   String
   stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
-  type      TransactionType // BUY or SELL
+  type      TransactionType
   shares    Int
   pricePerShare Decimal @db.Decimal(10, 2)
   totalCost Decimal @db.Decimal(10, 2)
   createdAt DateTime @default(now())
 }
-
-
 
 enum TransactionType {
   BUY

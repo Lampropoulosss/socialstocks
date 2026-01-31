@@ -21,7 +21,6 @@ module.exports = {
         const isTracking = shouldTrack(newState);
 
         if (!wasTracking && isTracking) {
-            // Pass the whole member object to cache username
             voiceService.startTracking(member);
         }
 

@@ -7,7 +7,6 @@ dotenv.config();
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
-// Simple check if directory exists
 if (!fs.existsSync(commandsPath)) {
     console.error("Commands directory not found.");
     process.exit(1);
@@ -30,12 +29,6 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN!);
 (async () => {
     try {
         console.log(`Started refreshing ${commands.length} application (/) commands.`);
-
-        // The put method is used to fully refresh all commands in the guild with the current set
-        // Note: For global commands, use Routes.applicationCommands(clientId)
-        // We need CLIENT_ID in env or fetched from token (not easy with just token).
-        // Asking user for CLIENT_ID might be needed, or we can fetch it if we log in first.
-        // For now, let's assume valid env.
 
         if (!process.env.CLIENT_ID) {
             console.error("Missing CLIENT_ID in .env");

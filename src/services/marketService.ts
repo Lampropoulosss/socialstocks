@@ -3,8 +3,13 @@ import prisma from '../prisma';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
 export class MarketService {
-    static async getMarketResponse() {
+    static async getMarketResponse(guildId: string) {
         const stocks = await prisma.stock.findMany({
+            where: {
+                user: {
+                    guildId: guildId
+                }
+            },
             orderBy: { currentPrice: 'desc' },
             take: 10,
             include: {

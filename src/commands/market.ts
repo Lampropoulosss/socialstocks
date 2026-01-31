@@ -8,7 +8,12 @@ module.exports = {
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
 
-        const response = await MarketService.getMarketResponse();
+        if (!interaction.guildId) {
+            await interaction.editReply('This command can only be used in a server.');
+            return;
+        }
+
+        const response = await MarketService.getMarketResponse(interaction.guildId);
 
         await interaction.editReply(response);
     },

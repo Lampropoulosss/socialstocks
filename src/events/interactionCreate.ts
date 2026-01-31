@@ -52,7 +52,7 @@ module.exports = {
                         await interaction.followUp({ content: 'Profile not found or not initialized yet.', ephemeral: true });
                     }
                 } else if (customId === 'refresh_market') {
-                    const response = await MarketService.getMarketResponse();
+                    const response = await MarketService.getMarketResponse(guildId);
                     if (response) {
                         await interaction.editReply(response);
                     } else {

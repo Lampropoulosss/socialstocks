@@ -2,33 +2,34 @@ import Redis from 'ioredis';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+// 1. Cache Client: Used for Spam checks, Leaderboards, Usernames
+// It is allowed to drop keys if memory is full.
+export const redisCache = new Redis(process.env.REDIS_CACHE_URL!);
 
-const redis = new Redis(redisUrl);
+// 2. Queue Client: Used for Activity Buffers, Voice Tracking
+// This holds money-related logic steps, so it must not lose data.
+export const redisQueue = new Redis(process.env.REDIS_QUEUE_URL!);
 
-redis.on('connect', () => {
-    console.log('Connected to Redis');
-});
+redisCache.on('error', (err) => console.error('Redis Cache Error:', err));
+redisQueue.on('error', (err) => console.error('Redis Queue Error:', err));
 
-redis.on('error', (err) => {
-    console.error('Redis connection error:', err);
-});
+// Default export for backward compatibility (points to cache)
+export default redisCache;
 
-export default redis;
-
-// Define the Lua script for atomic checks
+// --- OPTIMIZED LUA SCRIPT (Strategy B) ---
+// We shortened keys: "user:jail" -> "u:j", "spam:hash" -> "s:h", etc.
 const messageCheckScript = `
     local guildId = KEYS[1]
     local discordId = KEYS[2]
     local now = tonumber(ARGV[1])
     local contentHash = ARGV[2]
 
-    -- Keys
-    local jailKey = "user:jail:" .. guildId .. ":" .. discordId
-    local hashKey = "spam:hash:" .. guildId .. ":" .. discordId
-    local spamKey = "spam:times:" .. guildId .. ":" .. discordId
+    -- Shortened Keys to save RAM
+    local jailKey = "u:j:" .. guildId .. ":" .. discordId
+    local hashKey = "s:h:" .. guildId .. ":" .. discordId
+    local spamKey = "s:t:" .. guildId .. ":" .. discordId
 
-    -- 1. Check Jail (Fail fast)
+    -- 1. Check Jail
     if redis.call('EXISTS', jailKey) == 1 then
         return { 'JAILED' }
     end
@@ -40,9 +41,8 @@ const messageCheckScript = `
     end
     redis.call('SET', hashKey, contentHash, 'EX', 60)
 
-    -- 3. Rate Limit / Burst (Sliding Window)
+    -- 3. Rate Limit / Burst
     redis.call('RPUSH', spamKey, now)
-    -- Keep last 6 timestamps
     redis.call('LTRIM', spamKey, -6, -1) 
     redis.call('EXPIRE', spamKey, 60)
     
@@ -51,9 +51,8 @@ const messageCheckScript = `
         local first = tonumber(history[1])
         local last = tonumber(history[#history])
         
-        -- If 6 messages in less than 4 seconds (Burst)
         if (last - first) < 4000 then 
-            -- JAIL THEM in Redis for 5 mins
+            -- JAIL: 5 mins
             redis.call('SET', jailKey, 1, 'EX', 300) 
             return { 'TRIGGER_JAIL' }
         end
@@ -68,13 +67,13 @@ export const checkMessageFlow = async (
     contentHash: string,
     now: number
 ) => {
+    // Spam protection is transient, so we use redisCache
     // @ts-ignore
-    return redis.eval(
+    return redisCache.eval(
         messageCheckScript,
-        2, // Number of KEYS
+        2,
         guildId,
         discordId,
-        // ARGS
         String(now),
         contentHash
     );

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "deploy": "ts-node src/deploy-commands.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "worker": "node dist/worker.js"
   },
   "keywords": [],
   "author": "",

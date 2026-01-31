@@ -1,4 +1,4 @@
-import redis from '../redis';
+import { redisQueue } from '../redis';
 import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
@@ -25,7 +25,7 @@ export class ActivityService {
 
     static async bufferActivity(data: ActivityData) {
         if (!data.createdAt) data.createdAt = Date.now();
-        await redis.rpush(this.BUFFER_KEY, JSON.stringify(data));
+        await redisQueue.rpush(this.BUFFER_KEY, JSON.stringify(data));
     }
 
     static async flushActivities() {
@@ -35,7 +35,7 @@ export class ActivityService {
         try {
             const BATCH_SIZE = 2000;
             // @ts-ignore
-            const items = await redis.lpop(this.BUFFER_KEY, BATCH_SIZE);
+            const items = await redisQueue.lpop(this.BUFFER_KEY, BATCH_SIZE);
 
             if (!items || (Array.isArray(items) && items.length === 0)) {
                 this.IS_FLUSHING = false;
@@ -209,7 +209,7 @@ export class ActivityService {
             // Optional: push failed items back to redis?
         } finally {
             this.IS_FLUSHING = false;
-            const len = await redis.llen(this.BUFFER_KEY);
+            const len = await redisQueue.llen(this.BUFFER_KEY);
             if (len > 0) setImmediate(() => this.flushActivities());
         }
     }

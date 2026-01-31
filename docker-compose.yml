@@ -4,18 +4,19 @@ services:
     restart: always
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      # Update these URLs in your .env file!
       - REDIS_CACHE_URL=${REDIS_CACHE_URL}
       - REDIS_QUEUE_URL=${REDIS_QUEUE_URL}
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DB_POOL_SIZE=10
+      - TOTAL_SHARDS=2  # Total shards for the whole bot
+      - CLUSTERS=2      # How many containers/replicas are you running?
     command: npm start
     depends_on:
       - postgres
       - redis-cache
       - redis-queue
     deploy:
-      replicas: 1
+      replicas: 2
 
   worker:
     build: .
@@ -30,6 +31,8 @@ services:
       - postgres
       - redis-cache
       - redis-queue
+    deploy:
+      replicas: 2
 
   postgres:
     image: postgres:15-alpine

@@ -1,6 +1,6 @@
 import { Events, Guild } from 'discord.js';
 import prisma from '../prisma';
-import redis from '../redis';
+import { redisCache } from '../redis';
 import { voiceService } from '../services/voiceService';
 
 module.exports = {
@@ -26,7 +26,7 @@ module.exports = {
             console.log(`Deleted ${result.count} users and related data for guild ${guild.id}`);
 
             // 2. Clean up Redis
-            const pipeline = redis.pipeline();
+            const pipeline = redisCache.pipeline();
 
             // Leaderboard
             pipeline.del(`leaderboard:networth:${guild.id}`);

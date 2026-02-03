@@ -2,7 +2,7 @@ import { redisQueue, redisCache } from '../redis';
 import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
-import { LeaderboardService } from './leaderboardService';
+import { z } from 'zod';
 
 export enum ActivityType {
     MESSAGE = 'MESSAGE',
@@ -20,6 +20,16 @@ export interface ActivityData {
     createdAt?: number;
 }
 
+const ActivityDataSchema = z.object({
+    discordId: z.string(),
+    guildId: z.string(),
+    username: z.string(),
+    type: z.enum(['MESSAGE', 'REACTION_RECEIVED', 'VOICE_MINUTE']),
+    value: z.number(),
+    metadata: z.record(z.string(), z.any()).optional(),
+    createdAt: z.number().optional()
+});
+
 export class ActivityService {
     private static BUFFER_KEY = 'activity_buffer';
     private static IS_FLUSHING = false;
@@ -35,7 +45,7 @@ export class ActivityService {
 
         try {
             const BATCH_SIZE = 2000;
-            // @ts-ignore
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const items = await redisQueue.lpop(this.BUFFER_KEY, BATCH_SIZE);
 
             if (!items || (Array.isArray(items) && items.length === 0)) {
@@ -43,9 +53,24 @@ export class ActivityService {
                 return;
             }
 
-            const rawLogs: ActivityData[] = (Array.isArray(items) ? items : [items])
-                .map(s => { try { return JSON.parse(s); } catch { return null; } })
-                .filter(i => i !== null);
+            const rawItems = Array.isArray(items) ? items : [items];
+            const rawLogs: ActivityData[] = [];
+
+            for (const item of rawItems) {
+                try {
+                    const parsed = JSON.parse(item);
+                    const validated = ActivityDataSchema.safeParse(parsed);
+                    if (validated.success) {
+                        // Cast the enum type explicitly to match ActivityData interface
+                        const data = validated.data as ActivityData;
+                        rawLogs.push(data);
+                    } else {
+                        console.warn("Invalid activity data in queue:", validated.error);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse activity JSON:", e);
+                }
+            }
 
             if (rawLogs.length === 0) {
                 this.IS_FLUSHING = false;
@@ -65,22 +90,6 @@ export class ActivityService {
                     });
                 }
             }
-
-            // [NEW] No pre-fetching Redis buffs. handled in DB query or logic below?
-            // Actually we need to check if user has buff to multiply points.
-            // We can fetch this when we fetch the users from DB.
-            // But we calculate points BEFORE fetching users from DB in the original code? 
-            // Original: 1. Calc points (with Redis buff check). 2. Fetch/Create DB users. 3. Apply changes.
-            // If we move buff check to DB, we must fetch users FIRST or fetch buffs FIRST.
-            // Optimally, fetch users first to get `bullhornUntil`?
-            // But if user doesn't exist, we create them. They won't have buff.
-
-            // Re-ordering approach:
-            // 1. Identify users (discordId:guildId)
-            // 2. Fetch existing users (with bullhornUntil)
-            // 3. For missing users -> create them (no buff)
-            // 4. Calculate points using fetched/created data
-            // 5. Update Stock Prices
 
             const allKeys = Array.from(userMetaMap.keys());
             const identifiers = allKeys.map(k => {
@@ -220,9 +229,11 @@ export class ActivityService {
                 const currentPrice = new Decimal(Number(user.stock.currentPrice));
                 const volatility = new Decimal(Number(user.stock.volatility));
 
-                // Recommendation: let multiplier = new Decimal(Math.log10(score + 1)).times(volatility)...
                 const scoreLog = new Decimal(Math.log10(score + 1));
-                const change = currentPrice.times(volatility).times(scoreLog).times(100).times(0.01);
+
+                const DAMPENING_FACTOR = 0.01;
+                const change = currentPrice.times(volatility).times(scoreLog).times(DAMPENING_FACTOR);
+
                 let newPrice = currentPrice.plus(change);
 
                 if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
@@ -231,11 +242,6 @@ export class ActivityService {
                 const newPriceStr = newPrice.toFixed(2);
                 updatesMap.set(user.stock.id, newPriceStr);
 
-                // [NEW] Recalculate Net Worth for this user (Lazy consistency)
-                // NetWorth = Balance + Sum(Shares * Price)
-                // Note: user.portfolio contains stocks. The price of THIS user's stock just changed.
-                // If the user holds their OWN stock, we must use the NEW PRICE.
-                // If they hold others, we use the CURRENT price from the DB (which might be stale if others updated in this batch, ignoring that complexity for now).
                 let stockValue = new Decimal(0);
                 for (const item of user.portfolio) {
                     let price = new Decimal(String(item.stock.currentPrice));
@@ -255,7 +261,7 @@ export class ActivityService {
             if (updatesMap.size > 0) {
                 // Update Stocks
                 const updateValues = Array.from(updatesMap.entries()).map(([id, price]) =>
-                    Prisma.sql`(${id}::text, ${new Decimal(price)}::decimal)`
+                    Prisma.sql`(${id}::text, ${price}::decimal)`
                 );
 
                 await prisma.$executeRaw`
@@ -277,21 +283,6 @@ export class ActivityService {
                      `;
                 }
 
-                // Push to Redis Leaderboard
-                // LeaderboardService.updateUser is single user update.
-                // We could optimize ensuring we don't spam redis if we just updated DB.
-                // LeaderboardService.updateUser re-calculates netWorth from DB. 
-                // Since we just calculated it, we could push directly?
-                // But `updateUser` fetches fresh data.
-                // Let's just let LeaderboardService handle it for now, or use `syncLeaderboard` logic?
-                // `LeaderboardService.updateUser` calls `prisma.user.update`. We already updated netWorth.
-                // So `LeaderboardService.updateUser` will fetch the updated netWorth and push to Redis.
-                // But it RE-CALCULATES it in `updateUser` (unless we updated it to strictly read?).
-                // I updated `updateUser` to re-calculate and Persist.
-                // If I run `updateUser` now, it will fetch the just-updated DB, re-calc (same result), update DB (redundant), push to Redis.
-                // It's a bit redundant but safe.
-                // To optimize, I should just push to Redis here.
-
                 const pipeline = redisCache.pipeline();
                 netWorthUpdates.forEach(u => {
                     const user = mutableUsers.find(eu => eu.id === u.userId);
@@ -309,7 +300,11 @@ export class ActivityService {
         } finally {
             this.IS_FLUSHING = false;
             const len = await redisQueue.llen(this.BUFFER_KEY);
-            if (len > 0) setImmediate(() => this.flushActivities());
+            if (len > 0) {
+                setTimeout(() => {
+                    this.flushActivities().catch(e => console.error("Critical Flush Loop Error:", e));
+                }, 200);
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-import { Events, Interaction } from 'discord.js';
+import { Events, Interaction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { ProfileService } from '../services/profileService';
 import { MarketService } from '../services/marketService';
 import { LeaderboardService } from '../services/leaderboardService';
@@ -19,11 +19,22 @@ module.exports = {
             try {
                 await command.execute(interaction);
             } catch (error) {
+                // Check if the error is "Unknown interaction" (10062)
+                if (error instanceof DiscordAPIError && error.code === 10062) {
+                    console.warn(`Interaction ${interaction.commandName} timed out before reply.`);
+                    return;
+                }
+
                 console.error(error);
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-                } else {
-                    await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+
+                // Safe error replying
+                try {
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.followUp({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });
+                    } else {
+                        await interaction.reply({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });
+                    }
+                } catch (replyError) {
                 }
             }
             return;
@@ -35,7 +46,7 @@ module.exports = {
             const username = interaction.user.username;
 
             if (!guildId) {
-                await interaction.reply({ content: 'This action can only be performed in a server.', ephemeral: true });
+                await interaction.reply({ content: 'This action can only be performed in a server.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
@@ -49,14 +60,14 @@ module.exports = {
                     if (response) {
                         await interaction.editReply(response);
                     } else {
-                        await interaction.followUp({ content: 'Profile not found or not initialized yet.', ephemeral: true });
+                        await interaction.followUp({ content: 'Profile not found or not initialized yet.', flags: MessageFlags.Ephemeral });
                     }
                 } else if (customId === 'refresh_market') {
                     const response = await MarketService.getMarketResponse(guildId);
                     if (response) {
                         await interaction.editReply(response);
                     } else {
-                        await interaction.followUp({ content: 'Market data unavailable.', ephemeral: true });
+                        await interaction.followUp({ content: 'Market data unavailable.', flags: MessageFlags.Ephemeral });
                     }
                 } else if (customId === 'refresh_leaderboard') {
                     const response = await LeaderboardService.getLeaderboardResponse(guildId);
@@ -71,10 +82,14 @@ module.exports = {
                 }
             } catch (error) {
                 console.error("Button interaction error:", error);
-                if (interaction.deferred || interaction.replied) {
-                    await interaction.followUp({ content: 'Interaction failed due to an error.', ephemeral: true });
-                } else {
-                    await interaction.reply({ content: 'Interaction failed.', ephemeral: true });
+                try {
+                    if (interaction.deferred || interaction.replied) {
+                        await interaction.followUp({ content: 'Interaction failed due to an error.', flags: MessageFlags.Ephemeral });
+                    } else {
+                        await interaction.reply({ content: 'Interaction failed.', flags: MessageFlags.Ephemeral });
+                    }
+                } catch (replyError) {
+                    console.error('Error sending button error message:', replyError);
                 }
             }
         }

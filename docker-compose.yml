@@ -4,35 +4,39 @@ services:
     restart: always
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_CACHE_URL=${REDIS_CACHE_URL}
-      - REDIS_QUEUE_URL=${REDIS_QUEUE_URL}
+      - REDIS_CACHE_URL=redis://redis-cache:6379
+      - REDIS_QUEUE_URL=redis://redis-queue:6379
       - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - DB_POOL_SIZE=10
-      - TOTAL_SHARDS=2  # Total shards for the whole bot
-      - CLUSTERS=2      # How many containers/replicas are you running?
-    command: npm start
+      - DB_POOL_SIZE=5          # Lower pool size per container
+      - TOTAL_SHARDS=2
+      - CLUSTERS=1              # Run 1 cluster (container) handling both shards
+    command: sh -c "npx prisma migrate deploy && node dist/index.js" # Run migrations then start the app
     depends_on:
       - postgres
       - redis-cache
       - redis-queue
     deploy:
-      replicas: 2
+      resources:
+        limits:
+          memory: 1024M        # Hard limit to prevent crashing the OS
 
   worker:
     build: .
     restart: always
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_CACHE_URL=${REDIS_CACHE_URL}
-      - REDIS_QUEUE_URL=${REDIS_QUEUE_URL}
-      - DB_POOL_SIZE=10
-    command: npm run worker 
+      - REDIS_CACHE_URL=redis://redis-cache:6379
+      - REDIS_QUEUE_URL=redis://redis-queue:6379
+      - DB_POOL_SIZE=5
+    command: node dist/worker.js
     depends_on:
       - postgres
       - redis-cache
       - redis-queue
     deploy:
-      replicas: 2
+      resources:
+        limits:
+          memory: 512M
 
   postgres:
     image: postgres:15-alpine
@@ -41,27 +45,30 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    command: postgres -c 'max_connections=200'
+    # Tune memory usage: 128MB shared buffers, max 50 connections
+    command: postgres -c 'shared_buffers=128MB' -c 'max_connections=50'
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
 
-  # Instance 1: Cache (Transient Data)
-  # Policy: Delete oldest keys when full.
   redis-cache:
     image: redis:alpine
     restart: always
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save ""
+    # Cap at 256mb. If full, delete old keys (allkeys-lru)
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save ""
     volumes:
       - redis_cache_data:/data
 
-  # Instance 2: Queue (Critical Data)
-  # Policy: Crash if full (don't delete data silently), but persist to disk.
   redis-queue:
     image: redis:alpine
     restart: always
-    command: redis-server --maxmemory 2gb --maxmemory-policy noeviction --appendonly yes
+    # Cap at 256mb. If full, throw error (noeviction) - queues shouldn't just delete data
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
     volumes:
       - redis_queue_data:/data
 

@@ -52,4 +52,6 @@ model Portfolio {
   updatedAt DateTime @updatedAt
 
   @@unique([ownerId, stockId])
+
+  @@index([stockId, shares(sort: Desc)])
 }

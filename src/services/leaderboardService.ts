@@ -155,67 +155,26 @@ export class LeaderboardService {
     }
 
     static async recalculateAllNetWorths() {
-        console.log("🔄 Starting Full Net Worth Sync (Batched)...");
+        console.log("🔄 Starting Full Net Worth Sync (SQL Native)...");
+        const start = Date.now();
 
-        const BATCH_SIZE = 1000;
-        let cursor: string | undefined;
-        let totalUpdated = 0;
+        try {
+            // Calculate Net Worth: Balance + Sum(Shares * CurrentPrice)
+            // We use COALESCE to handle users with no stocks (null sum)
+            const count = await prisma.$executeRaw`
+            UPDATE "User" u
+            SET "netWorth" = (u.balance::decimal + (
+                SELECT COALESCE(SUM(p.shares * s."currentPrice"), 0)
+                FROM "Portfolio" p
+                JOIN "Stock" s ON p."stockId" = s.id
+                WHERE p."ownerId" = u.id
+            ))::decimal,
+            "updatedAt" = NOW()
+        `;
 
-        while (true) {
-            // 1. Fetch a small batch of users
-            const users = await prisma.user.findMany({
-                take: BATCH_SIZE,
-                skip: cursor ? 1 : 0,
-                cursor: cursor ? { id: cursor } : undefined,
-                orderBy: { id: 'asc' },
-                select: {
-                    id: true,
-                    balance: true,
-                    // Only fetch minimal data needed for calc
-                    portfolio: {
-                        select: {
-                            shares: true,
-                            stock: { select: { currentPrice: true } }
-                        }
-                    }
-                }
-            });
-
-            if (users.length === 0) break;
-
-            // 2. Calculate updates in memory (Node.js is fast at math)
-            const updates = users.map(user => {
-                let stockValue = new Decimal(0);
-                for (const item of user.portfolio) {
-                    // Determine value based on CURRENT stock prices (which might have decayed)
-                    if (item.stock) {
-                        const price = new Decimal(String(item.stock.currentPrice));
-                        stockValue = stockValue.plus(new Decimal(item.shares).times(price));
-                    }
-                }
-                const newNetWorth = new Decimal(String(user.balance)).plus(stockValue);
-
-                // Prepare the raw SQL values
-                return Prisma.sql`(${user.id}::text, ${newNetWorth}::decimal)`;
-            });
-
-            // 3. Perform a Bulk Update for this batch only
-            if (updates.length > 0) {
-                await prisma.$executeRaw`
-                    UPDATE "User" as u
-                    SET "netWorth" = v.nw, "updatedAt" = NOW()
-                    FROM (VALUES ${Prisma.join(updates)}) as v(id, nw)
-                    WHERE u.id = v.id
-                `;
-            }
-
-            totalUpdated += users.length;
-            cursor = users[users.length - 1].id;
-
-            // 4. BREATHING ROOM: Pause for 100ms to allow other bot commands to run
-            await new Promise(resolve => setTimeout(resolve, 100));
+            console.log(`✅ Net Worth Sync Complete. Updated ${count} users in ${Date.now() - start}ms.`);
+        } catch (error) {
+            console.error("❌ Net Worth Sync Failed:", error);
         }
-
-        console.log(`✅ Net Worth Sync Complete. Updated ${totalUpdated} users.`);
     }
 }

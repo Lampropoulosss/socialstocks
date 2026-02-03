@@ -6,7 +6,7 @@ module.exports = {
         .setName('leaderboard')
         .setDescription('View the richest users on the platform'),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         try {
             if (!interaction.guildId) {

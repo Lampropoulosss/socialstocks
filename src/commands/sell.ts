@@ -16,7 +16,7 @@ module.exports = {
                 .setMinValue(1)
                 .setRequired(true)),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         const targetUser = interaction.options.getUser('user')!;
         const amount = interaction.options.getInteger('amount')!;

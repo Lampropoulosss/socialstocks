@@ -6,7 +6,7 @@ module.exports = {
         .setName('market')
         .setDescription('View top stocks in the market'),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         if (!interaction.guildId) {
             await interaction.editReply('This command can only be used in a server.');

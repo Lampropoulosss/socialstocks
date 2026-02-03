@@ -7,6 +7,6 @@ module.exports = {
         .setDescription('List all available commands'),
     async execute(interaction: ChatInputCommandInteraction) {
         const response = HelpService.getHelpResponse();
-        await interaction.reply(response);
+        await interaction.reply({ ...response, ephemeral: true });
     },
 };

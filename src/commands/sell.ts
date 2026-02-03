@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { Colors } from '../utils/theme';
 import { TransactionType } from '@prisma/client';
 import prisma from '../prisma';
@@ -17,7 +17,7 @@ module.exports = {
                 .setMinValue(1)
                 .setRequired(true)),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const targetUser = interaction.options.getUser('user')!;
         const amount = interaction.options.getInteger('amount')!;

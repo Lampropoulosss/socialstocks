@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { HelpService } from '../services/helpService';
 
 module.exports = {
@@ -7,6 +7,6 @@ module.exports = {
         .setDescription('List all available commands'),
     async execute(interaction: ChatInputCommandInteraction) {
         const response = HelpService.getHelpResponse();
-        await interaction.reply({ ...response, ephemeral: true });
+        await interaction.reply({ ...response, flags: MessageFlags.Ephemeral });
     },
 };

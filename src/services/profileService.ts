@@ -34,24 +34,35 @@ export class ProfileService {
 
         const embed = new EmbedBuilder()
             .setTitle(`${username}'s Profile`)
-            .setColor(Colors.Primary)
-            .addFields(
-                {
-                    name: 'Balance',
-                    value: `$${balance.toFixed(2)}`,
-                    inline: true
-                },
-                {
-                    name: 'Stock Price',
-                    value: `$${stockPrice.toFixed(2)}`,
-                    inline: true
-                },
-                {
-                    name: 'Market Cap',
-                    value: `$${marketCap.toFixed(2)}`,
-                    inline: true
-                },
-            );
+            .setColor(Colors.Primary);
+
+        if (user.stock) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { ShareholderService } = require('./shareholderService');
+            const majorityShareholder = await ShareholderService.getMajorityShareholder(user.stock.id);
+
+            if (majorityShareholder) {
+                embed.setDescription(`🔒 **Property of ${majorityShareholder.username}**`);
+            }
+        }
+
+        embed.addFields(
+            {
+                name: 'Balance',
+                value: `$${balance.toFixed(2)}`,
+                inline: true
+            },
+            {
+                name: 'Stock Price',
+                value: `$${stockPrice.toFixed(2)}`,
+                inline: true
+            },
+            {
+                name: 'Market Cap',
+                value: `$${marketCap.toFixed(2)}`,
+                inline: true
+            },
+        );
 
         if (user.portfolio.length > 0) {
             const sortedPortfolio = [...user.portfolio].sort((a, b) => {

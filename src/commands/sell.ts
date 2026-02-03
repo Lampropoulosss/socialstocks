@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { Colors } from '../utils/theme';
-import { TransactionType } from '@prisma/client';
+
 import prisma from '../prisma';
 
 module.exports = {
@@ -88,17 +88,6 @@ module.exports = {
                         data: { shares: { decrement: amount } }
                     });
                 }
-
-                await tx.transaction.create({
-                    data: {
-                        userId: sellerId,
-                        stockId: stock.id,
-                        type: TransactionType.SELL,
-                        shares: amount,
-                        pricePerShare: currentValue,
-                        totalCost: netRevenue
-                    }
-                });
             });
 
             const profitSign = profit >= 0 ? '+' : '-';

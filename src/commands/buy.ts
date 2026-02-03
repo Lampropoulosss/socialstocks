@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { Colors } from '../utils/theme';
-import { TransactionType } from '@prisma/client';
+
 import Decimal from 'decimal.js';
 import prisma from '../prisma';
 
@@ -127,17 +127,6 @@ module.exports = {
                         }
                     });
                 }
-
-                await tx.transaction.create({
-                    data: {
-                        userId: buyer.id,
-                        stockId: currentStock.id,
-                        type: TransactionType.BUY,
-                        shares: amount,
-                        pricePerShare: currentPrice.toString(),
-                        totalCost: cost.toString()
-                    }
-                });
 
                 return { symbol: currentStock.symbol, shares: amount, cost, price: currentPrice };
             });

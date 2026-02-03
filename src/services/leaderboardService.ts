@@ -8,6 +8,7 @@ export class LeaderboardService {
     private static LEADERBOARD_KEY_PREFIX = 'leaderboard:networth';
 
     static async updateUser(userId: string, guildId: string) {
+        // Fetch full data to calculate accurate Net Worth on demand (e.g. after buy/sell)
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -31,65 +32,55 @@ export class LeaderboardService {
         }
 
         const netWorth = new Decimal(String(user.balance)).plus(stockValue);
-        const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
 
+        // [NEW] Persist to DB
+        await prisma.user.update({
+            where: { id: userId },
+            data: { netWorth: netWorth.toString() }
+        });
+
+        const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
         await redisCache.zadd(key, netWorth.toNumber(), user.id);
 
         await redisCache.set(`user:${user.id}:username`, user.username, 'EX', 86400);
     }
 
     static async syncLeaderboard() {
-        console.log('Starting Leaderboard Sync...');
+        console.log('Starting Optimized Leaderboard Sync...');
 
-        const BATCH_SIZE = 100;
+        const BATCH_SIZE = 1000; // Increased batch size since query is lighter
         let cursor: string | undefined = undefined;
 
+        const ONE_HOUR = 60 * 60 * 1000;
+        const activeSince = new Date(Date.now() - ONE_HOUR);
+
         while (true) {
+            // Fetch only pre-calculated netWorth for active users
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const batchUsers: any[] = await prisma.user.findMany({
+            const users: any[] = await prisma.user.findMany({
+                where: { updatedAt: { gte: activeSince } },
                 take: BATCH_SIZE,
                 skip: cursor ? 1 : 0,
                 cursor: cursor ? { id: cursor } : undefined,
-                select: { id: true, guildId: true },
+                select: { id: true, guildId: true, username: true, netWorth: true },
                 orderBy: { id: 'asc' }
             });
 
-            if (batchUsers.length === 0) break;
-
-            const usersWithData = await prisma.user.findMany({
-                where: { id: { in: batchUsers.map(u => u.id) } },
-                select: {
-                    id: true,
-                    guildId: true,
-                    username: true,
-                    balance: true,
-                    portfolio: {
-                        select: {
-                            shares: true,
-                            stock: { select: { currentPrice: true } }
-                        }
-                    }
-                }
-            });
+            if (users.length === 0) break;
 
             const pipeline = redisCache.pipeline();
 
-            for (const user of usersWithData) {
+            for (const user of users) {
                 const key = `${this.LEADERBOARD_KEY_PREFIX}:${user.guildId}`;
-                let stockValue = new Decimal(0);
-                for (const item of user.portfolio) {
-                    stockValue = stockValue.plus(new Decimal(item.shares).times(new Decimal(String(item.stock.currentPrice))));
-                }
-                const netWorth = new Decimal(String(user.balance)).plus(stockValue);
-
-                pipeline.zadd(key, netWorth.toNumber(), user.id);
+                // Use stored netWorth
+                pipeline.zadd(key, Number(user.netWorth), user.id);
                 pipeline.set(`user:${user.id}:username`, user.username, 'EX', 86400);
             }
 
             await pipeline.exec();
 
-            if (batchUsers.length < BATCH_SIZE) break;
-            cursor = batchUsers[batchUsers.length - 1].id;
+            if (users.length < BATCH_SIZE) break;
+            cursor = users[users.length - 1].id;
         }
 
         console.log('Leaderboard Sync Complete.');

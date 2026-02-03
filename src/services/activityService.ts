@@ -124,60 +124,62 @@ export class ActivityService {
                     };
                 });
 
-                // 1. Bulk Insert Users (1 Query)
-                await prisma.user.createMany({
-                    data: dataToCreate,
-                    skipDuplicates: true // Vital for race conditions
-                });
-
-                // 2. Fetch the IDs of the users we just created/already existed
-                const identifiers = missingKeys.map(k => {
-                    const meta = userMetaMap.get(k)!;
-                    return { discordId: meta.discordId, guildId: meta.guildId };
-                });
-
-                // 3. Re-fetch to populate existingUsers array
-                let newUsers = await prisma.user.findMany({
-                    where: { OR: identifiers },
-                    select: {
-                        id: true,
-                        discordId: true,
-                        guildId: true,
-                        username: true,
-                        stock: { select: { id: true } } // minimal select to check existence
-                    }
-                });
-
-                // 4. Handle Stock Creation using createMany
-                const usersMissingStock = newUsers.filter(u => !u.stock);
-
-                if (usersMissingStock.length > 0) {
-                    const stocksToCreate = usersMissingStock.map(u => ({
-                        userId: u.id,
-                        symbol: u.username.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'X'),
-                        currentPrice: 10.00,
-                        volatility: 0.05,
-                        totalShares: 1000
-                    }));
-
-                    await prisma.stock.createMany({
-                        data: stocksToCreate,
-                        skipDuplicates: true
+                const finalNewUsers = await prisma.$transaction(async (tx) => {
+                    // 1. Bulk Insert Users (1 Query)
+                    await tx.user.createMany({
+                        data: dataToCreate,
+                        skipDuplicates: true // Vital for race conditions
                     });
-                }
 
-                // 5. Final Re-fetch with all needed associations
-                const finalNewUsers = await prisma.user.findMany({
-                    where: { OR: identifiers },
-                    select: {
-                        id: true,
-                        discordId: true,
-                        guildId: true,
-                        bullhornUntil: true,
-                        balance: true,
-                        stock: { select: { id: true, currentPrice: true, volatility: true } },
-                        portfolio: { select: { shares: true, stock: { select: { currentPrice: true } } } }
+                    // 2. Fetch the IDs of the users we just created/already existed
+                    const identifiers = missingKeys.map(k => {
+                        const meta = userMetaMap.get(k)!;
+                        return { discordId: meta.discordId, guildId: meta.guildId };
+                    });
+
+                    // 3. Re-fetch to populate existingUsers array
+                    let newUsers = await tx.user.findMany({
+                        where: { OR: identifiers },
+                        select: {
+                            id: true,
+                            discordId: true,
+                            guildId: true,
+                            username: true,
+                            stock: { select: { id: true } } // minimal select to check existence
+                        }
+                    });
+
+                    // 4. Handle Stock Creation using createMany
+                    const usersMissingStock = newUsers.filter(u => !u.stock);
+
+                    if (usersMissingStock.length > 0) {
+                        const stocksToCreate = usersMissingStock.map(u => ({
+                            userId: u.id,
+                            symbol: u.username.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'X'),
+                            currentPrice: 10.00,
+                            volatility: 0.05,
+                            totalShares: 1000
+                        }));
+
+                        await tx.stock.createMany({
+                            data: stocksToCreate,
+                            skipDuplicates: true
+                        });
                     }
+
+                    // 5. Final Re-fetch with all needed associations
+                    return await tx.user.findMany({
+                        where: { OR: identifiers },
+                        select: {
+                            id: true,
+                            discordId: true,
+                            guildId: true,
+                            bullhornUntil: true,
+                            balance: true,
+                            stock: { select: { id: true, currentPrice: true, volatility: true } },
+                            portfolio: { select: { shares: true, stock: { select: { currentPrice: true } } } }
+                        }
+                    });
                 });
 
                 mutableUsers.push(...finalNewUsers);

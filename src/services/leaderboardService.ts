@@ -152,4 +152,22 @@ export class LeaderboardService {
 
         return { embeds: [embed], components: [row] };
     }
+
+    static async recalculateAllNetWorths() {
+        console.log("Recalculating all Net Worths (Lazy Consistency Fix)...");
+
+        // Heavy Query: Update NetWorth = Balance + PortfolioValue
+        const result = await prisma.$executeRaw`
+            UPDATE "User"
+            SET "netWorth" = "balance" + COALESCE((
+                SELECT SUM(p.shares * s."currentPrice")
+                FROM "Portfolio" p
+                JOIN "Stock" s ON p."stockId" = s.id
+                WHERE p."ownerId" = "User".id
+            ), 0),
+            "updatedAt" = NOW()
+        `;
+
+        console.log(`Net Worth recalculation complete. Users updated: ${result}`);
+    }
 }

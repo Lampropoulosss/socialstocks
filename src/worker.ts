@@ -25,6 +25,12 @@ setInterval(() => {
     });
 }, 10 * ONE_MINUTE);
 
+setInterval(() => {
+    runJobWithLock('job:networth_recalc', 55 * ONE_MINUTE, async () => {
+        await LeaderboardService.recalculateAllNetWorths();
+    });
+}, 60 * ONE_MINUTE);
+
 
 async function runJobWithLock(key: string, ttlMs: number, callback: () => Promise<void>) {
     const acquired = await redisQueue.set(key, 'locked', 'PX', ttlMs, 'NX');

@@ -98,7 +98,7 @@ module.exports = {
 
                 await tx.user.update({
                     where: { id: buyer.id },
-                    data: { balance: balance.minus(cost).toString() }
+                    data: { balance: { decrement: cost.toNumber() } }
                 });
 
                 const portfolio = await tx.portfolio.findUnique({

@@ -7,7 +7,7 @@ module.exports = {
         .setName('market')
         .setDescription('View top stocks in the market'),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
 
         if (!interaction.guildId) {
             const embed = new EmbedBuilder()

@@ -22,7 +22,7 @@ module.exports = {
                 .setDescription('Maximum price per share you are willing to pay')
                 .setRequired(false)),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
 
         const targetUser = interaction.options.getUser('user')!;
         const amount = interaction.options.getInteger('amount')!;

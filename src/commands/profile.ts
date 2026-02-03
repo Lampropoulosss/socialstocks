@@ -12,7 +12,7 @@ module.exports = {
                 .setRequired(false)
         ),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
 
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const discordId = targetUser.id;

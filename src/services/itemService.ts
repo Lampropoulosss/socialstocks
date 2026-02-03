@@ -58,9 +58,7 @@ export class ItemService {
         const item = SHOP_ITEMS.find(i => i.id === itemId);
         if (!item) throw new Error("Invalid item.");
 
-        if (buyer.balance.toNumber() < item.price) {
-            throw new Error(`Insufficient funds. You need $${item.price}.`);
-        }
+        // Balance check moved to transaction for safety
 
         // 2. Check Cooldowns and Active Effects
 
@@ -105,6 +103,9 @@ export class ItemService {
         const activeUntil = new Date(now.getTime() + durationSec * 1000);
 
         await prisma.$transaction(async (tx) => {
+            const freshBuyer = await tx.user.findUniqueOrThrow({ where: { id: buyer.id } });
+            if (freshBuyer.balance.toNumber() < item.price) throw new Error(`Insufficient funds. You need $${item.price}.`);
+
             await tx.user.update({
                 where: { id: buyer.id },
                 data: { balance: { decrement: item.price } }

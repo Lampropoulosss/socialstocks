@@ -218,9 +218,11 @@ export class ActivityService {
                 if (!score || !user.stock) continue;
 
                 const currentPrice = new Decimal(Number(user.stock.currentPrice));
-                const volatility = Number(user.stock.volatility);
+                const volatility = new Decimal(Number(user.stock.volatility));
 
-                let change = currentPrice.times(volatility * Math.log10(score + 1) * 100 * 0.01);
+                // Recommendation: let multiplier = new Decimal(Math.log10(score + 1)).times(volatility)...
+                const scoreLog = new Decimal(Math.log10(score + 1));
+                const change = currentPrice.times(volatility).times(scoreLog).times(100).times(0.01);
                 let newPrice = currentPrice.plus(change);
 
                 if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
@@ -253,7 +255,7 @@ export class ActivityService {
             if (updatesMap.size > 0) {
                 // Update Stocks
                 const updateValues = Array.from(updatesMap.entries()).map(([id, price]) =>
-                    Prisma.sql`(${id}::text, ${price}::decimal)`
+                    Prisma.sql`(${id}::text, ${new Decimal(price)}::decimal)`
                 );
 
                 await prisma.$executeRaw`

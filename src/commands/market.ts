@@ -1,5 +1,6 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { MarketService } from '../services/marketService';
+import { Colors } from '../utils/theme';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,7 +10,10 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         if (!interaction.guildId) {
-            await interaction.editReply('This command can only be used in a server.');
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 This command can only be used in a server.");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 

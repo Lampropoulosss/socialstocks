@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { Colors } from '../utils/theme';
 import { TransactionType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import prisma from '../prisma';
@@ -31,12 +32,18 @@ module.exports = {
 
 
         if (targetUser.id === buyerId) {
-            await interaction.editReply("🚫 You cannot buy stock in yourself. That would be insider trading!");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 You cannot buy stock in yourself. That would be insider trading!");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
         if (targetUser.bot) {
-            await interaction.editReply("You cannot buy stock in bots.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 You cannot buy stock in bots.");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
@@ -47,7 +54,10 @@ module.exports = {
         });
 
         if (!buyer) {
-            await interaction.editReply("You need a profile to buy stocks. Send a message to generate one.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 You need a profile to buy stocks. Send a message to generate one.");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
@@ -132,10 +142,23 @@ module.exports = {
                 return { symbol: currentStock.symbol, shares: amount, cost, price: currentPrice };
             });
 
-            await interaction.editReply(`Successfully bought ${result.shares} shares of **${result.symbol}** for $${result.cost.toFixed(2)} (Avg: $${result.price.toFixed(2)})!`);
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Success)
+                .setTitle("✅ Transaction Successful")
+                .setDescription(`Successfully bought **${result.shares}** shares of **${result.symbol}**.`)
+                .addFields(
+                    { name: 'Cost', value: `$${result.cost.toFixed(2)}`, inline: true },
+                    { name: 'Average Price', value: `$${result.price.toFixed(2)}`, inline: true }
+                );
+
+            await interaction.editReply({ embeds: [embed] });
 
         } catch (error: any) {
-            await interaction.editReply(error.message || "Transaction failed due to an error.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setTitle("❌ Transaction Failed")
+                .setDescription(error.message || "An unexpected error occurred.");
+            await interaction.editReply({ embeds: [embed] });
         }
     },
 };

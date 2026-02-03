@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { Colors } from '../utils/theme';
 import { TransactionType } from '@prisma/client';
 import prisma from '../prisma';
 
@@ -33,12 +34,18 @@ module.exports = {
         });
 
         if (!seller) {
-            await interaction.editReply("You don't have a profile.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 You don't have a profile.");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
         if (!targetUserDb || !targetUserDb.stock) {
-            await interaction.editReply("Stock not found.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription("🚫 Stock not found.");
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
@@ -50,7 +57,10 @@ module.exports = {
         });
 
         if (!portfolio || portfolio.shares < amount) {
-            await interaction.editReply(`You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setDescription(`🚫 You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 
@@ -92,11 +102,26 @@ module.exports = {
             });
 
             const profitSign = profit >= 0 ? '+' : '-';
-            await interaction.editReply(`Sold ${amount} shares of **${stock.symbol}** for $${netRevenue.toFixed(2)} (Tax: $${tax.toFixed(2)}). Profit: ${profitSign}$${Math.abs(profit).toFixed(2)}`);
+
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Success)
+                .setTitle("✅ Sale Successful")
+                .setDescription(`Sold **${amount}** shares of **${stock.symbol}**.`)
+                .addFields(
+                    { name: 'Net Revenue', value: `$${netRevenue.toFixed(2)}`, inline: true },
+                    { name: 'Tax Paid', value: `$${tax.toFixed(2)}`, inline: true },
+                    { name: 'Profit', value: `${profitSign}$${Math.abs(profit).toFixed(2)}`, inline: true }
+                );
+
+            await interaction.editReply({ embeds: [embed] });
 
         } catch (error) {
             console.error(error);
-            await interaction.editReply("Transaction failed.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setTitle("❌ Transaction Failed")
+                .setDescription("An error occurred while processing your sale.");
+            await interaction.editReply({ embeds: [embed] });
         }
     },
 };

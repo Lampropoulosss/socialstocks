@@ -1,5 +1,6 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { ProfileService } from '../services/profileService';
+import { Colors } from '../utils/theme';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -24,7 +25,12 @@ module.exports = {
             const message = targetUser.id === interaction.user.id
                 ? "You don't have a profile yet. Start chatting to generate one!"
                 : `${username} doesn't have a profile yet.`;
-            await interaction.editReply(message);
+
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Warning)
+                .setDescription(message);
+
+            await interaction.editReply({ embeds: [embed] });
             return;
         }
 

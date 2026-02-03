@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { LeaderboardService } from '../services/leaderboardService';
+import { Colors } from '../utils/theme';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -10,14 +11,21 @@ module.exports = {
 
         try {
             if (!interaction.guildId) {
-                await interaction.editReply("This command can only be used in a server.");
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Danger)
+                    .setDescription("🚫 This command can only be used in a server.");
+                await interaction.editReply({ embeds: [embed] });
                 return;
             }
 
             const response = await LeaderboardService.getLeaderboardResponse(interaction.guildId);
 
             if (!response) {
-                await interaction.editReply("The leaderboard is empty. Wait for the next update cycle.");
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Warning)
+                    .setTitle("🏆 Leaderboard")
+                    .setDescription("The leaderboard is empty. Wait for the next update cycle.");
+                await interaction.editReply({ embeds: [embed] });
                 return;
             }
 
@@ -25,7 +33,11 @@ module.exports = {
 
         } catch (error) {
             console.error(error);
-            await interaction.editReply("Failed to fetch leaderboard.");
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Danger)
+                .setTitle("❌ Error")
+                .setDescription("Failed to fetch leaderboard.");
+            await interaction.editReply({ embeds: [embed] });
         }
     },
 };

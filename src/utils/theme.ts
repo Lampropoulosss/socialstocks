@@ -13,7 +13,8 @@ export const ButtonLabels = {
     Profile: 'My Profile',
     Market: 'Market',
     Leaderboard: 'Leaderboard',
-    Help: 'Help'
+    Help: 'Help',
+    Support: 'Support Server'
 };
 
 export const Emojis = {
@@ -21,5 +22,6 @@ export const Emojis = {
     Profile: '👤',
     Market: '📈',
     Leaderboard: '🏆',
-    Help: '❓'
+    Help: '❓',
+    Support: '🛟'
 };

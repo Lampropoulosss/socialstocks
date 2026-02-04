@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { Colors } from '../utils/theme';
 import { ItemService } from '../services/itemService';
 
@@ -16,11 +16,11 @@ module.exports = {
             .addFields(
                 items.map(item => ({
                     name: `${item.name} - $${item.price}`,
-                    value: `${item.description}\n⏳ Duration: ${item.durationMinutes}m | 🕒 Cooldown: ${item.cooldownMinutes}m\nID: \`${item.id}\``
+                    value: `${item.description}\n⏳ Duration: ${item.durationMinutes}m | 🕒 Cooldown: ${item.cooldownMinutes}m`
                 }))
             )
-            .setFooter({ text: "Use /buy_item <item_id> <user> to purchase." });
+            .setFooter({ text: "Use /buy_item <item_name> <user> to purchase." });
 
-        await interaction.reply({ embeds: [embed] });
+        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     },
 };

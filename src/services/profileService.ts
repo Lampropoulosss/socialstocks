@@ -25,8 +25,17 @@ export class ProfileService {
             include: {
                 stock: true,
                 portfolio: {
+                    take: 10,
+                    orderBy: {
+                        shares: 'desc'
+                    },
                     include: {
                         stock: true
+                    }
+                },
+                _count: {
+                    select: {
+                        portfolio: true
                     }
                 }
             }
@@ -37,6 +46,7 @@ export class ProfileService {
         }
 
         const balance = new Decimal(String(user.balance));
+        const netWorth = new Decimal(String(user.netWorth));
         const stockPrice = new Decimal(String(user.stock?.currentPrice || 0));
         const totalShares = new Decimal(user.stock?.totalShares || 1000);
         const marketCap = stockPrice.times(totalShares);
@@ -57,6 +67,7 @@ export class ProfileService {
         }
 
         embed.addFields(
+            { name: 'Net Worth', value: `$${netWorth.toFixed(2)}`, inline: true },
             { name: 'Balance', value: `$${balance.toFixed(2)}`, inline: true },
             { name: 'Stock Price', value: `$${stockPrice.toFixed(2)}`, inline: true },
             { name: 'Market Cap', value: `$${marketCap.toFixed(2)}`, inline: true },
@@ -64,24 +75,23 @@ export class ProfileService {
 
         // Limit portfolio display to prevent massive loops
         if (user.portfolio.length > 0) {
-            const sortedPortfolio = [...user.portfolio].sort((a, b) => {
-                const valA = Number(a.stock.currentPrice) * a.shares;
-                const valB = Number(b.stock.currentPrice) * b.shares;
-                return valB - valA;
-            });
-
-            // OPTIMIZATION: Only show top 10 stocks to save CPU/Message Size
-            const topStocks = sortedPortfolio.slice(0, 10);
+            // Note: Portfolio is already sorted by shares desc from DB
+            const topStocks = user.portfolio;
 
             const portfolioDesc = topStocks.map(p => {
                 const currentPrice = new Decimal(String(p.stock.currentPrice));
                 const avgBuyPrice = new Decimal(String(p.averageBuyPrice));
-                const profitPct = currentPrice.minus(avgBuyPrice).div(avgBuyPrice).times(100);
+
+                let profitPct = new Decimal(0);
+                if (!avgBuyPrice.isZero()) {
+                    profitPct = currentPrice.minus(avgBuyPrice).div(avgBuyPrice).times(100);
+                }
+
                 const emoji = profitPct.gte(0) ? '🟢' : '🔴';
                 return `**${p.stock.symbol}**: ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
             }).join('\n');
 
-            const remaining = user.portfolio.length - 10;
+            const remaining = user._count.portfolio - topStocks.length;
             const extraText = remaining > 0 ? `\n...and ${remaining} more.` : '';
 
             embed.addFields({ name: 'Your Portfolio', value: (portfolioDesc + extraText).substring(0, 1024) || "None" });

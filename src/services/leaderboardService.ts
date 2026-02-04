@@ -9,7 +9,6 @@ export class LeaderboardService {
     private static LEADERBOARD_KEY_PREFIX = 'leaderboard:networth';
 
     static async updateUser(userId: string, guildId: string) {
-        // Fetch full data to calculate accurate Net Worth on demand (e.g. after buy/sell)
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -34,7 +33,6 @@ export class LeaderboardService {
 
         const netWorth = new Decimal(String(user.balance)).plus(stockValue);
 
-        // [NEW] Persist to DB
         await prisma.user.update({
             where: { id: userId },
             data: { netWorth: netWorth.toString() }
@@ -49,14 +47,13 @@ export class LeaderboardService {
     static async syncLeaderboard() {
         console.log('Starting Optimized Leaderboard Sync...');
 
-        const BATCH_SIZE = 1000; // Increased batch size since query is lighter
+        const BATCH_SIZE = 1000;
         let cursor: string | undefined = undefined;
 
         const ONE_HOUR = 60 * 60 * 1000;
         const activeSince = new Date(Date.now() - ONE_HOUR);
 
         while (true) {
-            // Fetch only pre-calculated netWorth for active users
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const users: any[] = await prisma.user.findMany({
                 where: { updatedAt: { gte: activeSince } },
@@ -73,7 +70,6 @@ export class LeaderboardService {
 
             for (const user of users) {
                 const key = `${this.LEADERBOARD_KEY_PREFIX}:${user.guildId}`;
-                // Use stored netWorth
                 pipeline.zadd(key, Number(user.netWorth), user.id);
                 pipeline.set(`user:${user.id}:username`, user.username, 'EX', 86400);
             }
@@ -177,7 +173,6 @@ export class LeaderboardService {
                 const userIds = users.map(u => u.id);
 
                 // 2. Run Update for this batch only
-                // We use IN (...) clause to restrict lock scope
                 const count = await prisma.$executeRaw`
                     UPDATE "User" u
                     SET "netWorth" = (u.balance::decimal + (
@@ -192,10 +187,8 @@ export class LeaderboardService {
 
                 processedCount += Number(count);
 
-                // 3. Move cursor
                 cursor = users[users.length - 1].id;
 
-                // 4. Yield / Sleep slightly to allow other transactions
                 await new Promise(r => setTimeout(r, 100));
 
                 if (users.length < BATCH_SIZE) break;

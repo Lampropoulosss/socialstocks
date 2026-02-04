@@ -1,13 +1,12 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import Decimal from 'decimal.js';
 import prisma from '../prisma';
-import { redisCache } from '../redis'; // Import Redis
+import { redisCache } from '../redis';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
 export class ProfileService {
     static async getProfileResponse(userId: string, guildId: string, username: string) {
 
-        // 1. CHECK CACHE FIRST
         const cacheKey = `view:profile:${guildId}:${userId}`;
         const cachedData = await redisCache.get(cacheKey);
 
@@ -56,7 +55,6 @@ export class ProfileService {
             .setColor(Colors.Primary);
 
         if (user.stock) {
-            // This is now safer thanks to the DB Index we added
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { ShareholderService } = require('./shareholderService');
             const majorityShareholder = await ShareholderService.getMajorityShareholder(user.stock.id);
@@ -73,9 +71,7 @@ export class ProfileService {
             { name: 'Market Cap', value: `$${marketCap.toFixed(2)}`, inline: true },
         );
 
-        // Limit portfolio display to prevent massive loops
         if (user.portfolio.length > 0) {
-            // Note: Portfolio is already sorted by shares desc from DB
             const topStocks = user.portfolio;
 
             const portfolioDesc = topStocks.map(p => {
@@ -110,8 +106,6 @@ export class ProfileService {
 
         const responsePayload = { embeds: [embed], components: [row] };
 
-        // 2. SET CACHE (Expire in 15 seconds)
-        // We cache the result so spamming the button reads from RAM, not DB
         await redisCache.set(cacheKey, JSON.stringify(responsePayload), 'EX', 15);
 
         return responsePayload;

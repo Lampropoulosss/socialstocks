@@ -36,7 +36,6 @@ export class StockService {
 
                 const stockIds = stocks.map((s: { id: string }) => s.id);
 
-                // 2. Execute Update for this batch only
                 const count = await prisma.$executeRaw`
                     UPDATE "Stock"
                     SET "currentPrice" = GREATEST("currentPrice" * 0.95, 10.00),
@@ -45,14 +44,11 @@ export class StockService {
                 `;
 
                 processedCount += Number(count);
-
-                // 3. Move cursor
                 cursor = stocks[stocks.length - 1].id;
 
-                // 4. Update cursor and sleep to yield locks
                 if (stocks.length < BATCH_SIZE) break;
 
-                await new Promise(r => setTimeout(r, 200)); // Sleep 200ms between batches
+                await new Promise(r => setTimeout(r, 200));
             }
 
             console.log(`Market decay applied. Total stocks updated: ${processedCount}`);

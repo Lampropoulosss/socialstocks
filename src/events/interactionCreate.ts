@@ -19,7 +19,6 @@ module.exports = {
             try {
                 await command.execute(interaction);
             } catch (error) {
-                // Check if the error is "Unknown interaction" (10062)
                 if (error instanceof DiscordAPIError && error.code === 10062) {
                     console.warn(`Interaction ${interaction.commandName} timed out before reply.`);
                     return;
@@ -27,7 +26,6 @@ module.exports = {
 
                 console.error(error);
 
-                // Safe error replying
                 try {
                     if (interaction.replied || interaction.deferred) {
                         await interaction.followUp({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });

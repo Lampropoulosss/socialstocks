@@ -22,7 +22,7 @@ export const SHOP_ITEMS: ShopItem[] = [
         description: '2x Activity Points (30 mins)',
         price: 200,
         durationMinutes: 30,
-        cooldownMinutes: 60 // "COOLDOWN FOR THE TARGET USER AND THE USER SENDING COMMAND" - let's assume 30m duration + some cooldown. Prompt says "UNTIL THE COOLDOWN IS OVER". Let's say cooldown is equal to duration? Or longer. Let's make it 60 mins to be safe/balanced.
+        cooldownMinutes: 60
     },
     {
         id: ItemType.PRICE_FREEZE,
@@ -30,7 +30,7 @@ export const SHOP_ITEMS: ShopItem[] = [
         description: 'Prevent stock price drop (3 hours)',
         price: 1000,
         durationMinutes: 180,
-        cooldownMinutes: 360 // 6 hours
+        cooldownMinutes: 360
     }
 ];
 
@@ -58,11 +58,7 @@ export class ItemService {
         const item = SHOP_ITEMS.find(i => i.id === itemId);
         if (!item) throw new Error("Invalid item.");
 
-        // Balance check moved to transaction for safety
-
         // 2. Check Cooldowns and Active Effects
-
-        // Check Active Effects in DB
         const now = new Date();
         if (itemId === ItemType.BULLHORN) {
             if (target.bullhornUntil && target.bullhornUntil > now) {
@@ -75,7 +71,6 @@ export class ItemService {
         }
 
         const getKeys = () => {
-            // We only need cooldown keys now
             return {
                 cooldownBuyer: `cooldown:${itemId.toLowerCase()}:buyer:${buyer.discordId}:${buyer.guildId}`,
                 cooldownTarget: `cooldown:${itemId.toLowerCase()}:target:${target.discordId}:${target.guildId}`

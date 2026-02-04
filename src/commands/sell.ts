@@ -81,7 +81,7 @@ module.exports = {
             await prisma.$transaction(async (tx) => {
                 await tx.user.update({
                     where: { id: sellerId },
-                    data: { balance: { increment: netRevenue.toNumber() } }
+                    data: { balance: { increment: netRevenue.toFixed(2) } }
                 });
 
                 if (portfolio.shares === amount) {

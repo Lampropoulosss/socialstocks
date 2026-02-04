@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Message
 import { Colors } from '../utils/theme';
 
 import prisma from '../prisma';
+import Decimal from 'decimal.js';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -64,20 +65,23 @@ module.exports = {
             return;
         }
 
-        const TAX_RATE = 0.10;
-        const currentValue = Number(stock.currentPrice);
-        const grossRevenue = currentValue * amount;
-        const tax = grossRevenue * TAX_RATE;
-        const netRevenue = grossRevenue - tax;
+        const TAX_RATE = new Decimal(0.10);
+        const currentPrice = new Decimal(String(stock.currentPrice));
+        const sharesToSell = new Decimal(amount);
 
-        const costBasis = Number(portfolio.averageBuyPrice) * amount;
-        const profit = netRevenue - costBasis;
+        const grossRevenue = currentPrice.times(sharesToSell);
+        const tax = grossRevenue.times(TAX_RATE).toDecimalPlaces(2);
+        const netRevenue = grossRevenue.minus(tax);
+
+        const averageBuyPrice = new Decimal(String(portfolio.averageBuyPrice));
+        const costBasis = averageBuyPrice.times(sharesToSell);
+        const profit = netRevenue.minus(costBasis);
 
         try {
             await prisma.$transaction(async (tx) => {
                 await tx.user.update({
                     where: { id: sellerId },
-                    data: { balance: { increment: netRevenue } }
+                    data: { balance: { increment: netRevenue.toNumber() } }
                 });
 
                 if (portfolio.shares === amount) {
@@ -90,7 +94,7 @@ module.exports = {
                 }
             });
 
-            const profitSign = profit >= 0 ? '+' : '-';
+            const profitSign = profit.greaterThanOrEqualTo(0) ? '+' : '-';
 
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
@@ -99,7 +103,7 @@ module.exports = {
                 .addFields(
                     { name: 'Net Revenue', value: `$${netRevenue.toFixed(2)}`, inline: true },
                     { name: 'Tax Paid', value: `$${tax.toFixed(2)}`, inline: true },
-                    { name: 'Profit', value: `${profitSign}$${Math.abs(profit).toFixed(2)}`, inline: true }
+                    { name: 'Profit', value: `${profitSign}$${profit.abs().toFixed(2)}`, inline: true }
                 );
 
             await interaction.editReply({ embeds: [embed] });

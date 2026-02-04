@@ -24,6 +24,8 @@ model User {
 
   @@unique([discordId, guildId])
   @@index([guildId])
+  @@index([netWorth(sort: Desc)])
+  @@index([updatedAt])
 }
 
 model Stock {
@@ -39,6 +41,9 @@ model Stock {
   frozenUntil DateTime?
 
   portfolios  Portfolio[]
+
+  @@index([currentPrice(sort: Desc)])
+  @@index([updatedAt])
 }
 
 model Portfolio {

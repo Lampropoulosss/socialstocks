@@ -155,24 +155,53 @@ export class LeaderboardService {
     }
 
     static async recalculateAllNetWorths() {
-        console.log("🔄 Starting Full Net Worth Sync (SQL Native)...");
+        console.log("🔄 Starting Batched Net Worth Sync...");
         const start = Date.now();
+        const BATCH_SIZE = 5000;
+        let processedCount = 0;
+        let cursor: string | undefined = undefined;
 
         try {
-            // Calculate Net Worth: Balance + Sum(Shares * CurrentPrice)
-            // We use COALESCE to handle users with no stocks (null sum)
-            const count = await prisma.$executeRaw`
-            UPDATE "User" u
-            SET "netWorth" = (u.balance::decimal + (
-                SELECT COALESCE(SUM(p.shares * s."currentPrice"), 0)
-                FROM "Portfolio" p
-                JOIN "Stock" s ON p."stockId" = s.id
-                WHERE p."ownerId" = u.id
-            ))::decimal,
-            "updatedAt" = NOW()
-        `;
+            while (true) {
+                // 1. Fetch batch of User IDs
+                const users: { id: string }[] = await prisma.user.findMany({
+                    take: BATCH_SIZE,
+                    skip: cursor ? 1 : 0,
+                    cursor: cursor ? { id: cursor } : undefined,
+                    select: { id: true },
+                    orderBy: { id: 'asc' }
+                });
 
-            console.log(`✅ Net Worth Sync Complete. Updated ${count} users in ${Date.now() - start}ms.`);
+                if (users.length === 0) break;
+
+                const userIds = users.map(u => u.id);
+
+                // 2. Run Update for this batch only
+                // We use IN (...) clause to restrict lock scope
+                const count = await prisma.$executeRaw`
+                    UPDATE "User" u
+                    SET "netWorth" = (u.balance::decimal + (
+                        SELECT COALESCE(SUM(p.shares * s."currentPrice"), 0)
+                        FROM "Portfolio" p
+                        JOIN "Stock" s ON p."stockId" = s.id
+                        WHERE p."ownerId" = u.id
+                    ))::decimal,
+                    "updatedAt" = NOW()
+                    WHERE u.id IN (${Prisma.join(userIds)})
+                `;
+
+                processedCount += Number(count);
+
+                // 3. Move cursor
+                cursor = users[users.length - 1].id;
+
+                // 4. Yield / Sleep slightly to allow other transactions
+                await new Promise(r => setTimeout(r, 100));
+
+                if (users.length < BATCH_SIZE) break;
+            }
+
+            console.log(`✅ Net Worth Sync Complete. Updated ${processedCount} users in ${Date.now() - start}ms.`);
         } catch (error) {
             console.error("❌ Net Worth Sync Failed:", error);
         }

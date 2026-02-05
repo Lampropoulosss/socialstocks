@@ -222,13 +222,28 @@ export class ActivityService {
                 if (!score || !user.stock) continue;
 
                 const currentPrice = new Decimal(String(user.stock.currentPrice));
-                const volatility = new Decimal(String(user.stock.volatility));
+
+                let baseVol = new Decimal(String(user.stock.volatility)).toNumber();
+                const priceVal = currentPrice.toNumber();
+
+                if (priceVal > 100) {
+                    baseVol = 0.1 / Math.log10(priceVal);
+                }
+
+                if (baseVol < 0.01) baseVol = 0.01;
+                if (baseVol > 0.15) baseVol = 0.15;
+
+                const volatility = new Decimal(baseVol);
 
                 const scoreLog = new Decimal(Math.log10(score + 1));
 
-                const DAMPENING_FACTOR = 0.5;
+                const DAMPENING_FACTOR = 0.25;
 
-                const change = currentPrice.times(volatility).times(scoreLog).times(DAMPENING_FACTOR);
+                let change = currentPrice.times(volatility).times(scoreLog).times(DAMPENING_FACTOR);
+
+                if (score > 0 && change.lessThan(0.01)) {
+                    change = new Decimal(0.01);
+                }
 
                 let newPrice = currentPrice.plus(change);
 

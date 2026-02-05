@@ -34,12 +34,14 @@ class VoiceService {
 
         const finalUsername = username || "Unknown";
 
+        const voicePoints = durationMinutes * 5;
+
         await ActivityService.bufferActivity({
             discordId,
             guildId,
             username: finalUsername,
             type: ActivityType.VOICE_MINUTE,
-            value: durationMinutes * 2,
+            value: voicePoints,
         });
     }
 

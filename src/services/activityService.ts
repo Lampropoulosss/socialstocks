@@ -44,7 +44,6 @@ export class ActivityService {
         if (this.IS_FLUSHING) return;
         this.IS_FLUSHING = true;
 
-        // Keep a reference to raw items for recovery
         let rawItems: string[] = [];
 
         try {
@@ -66,8 +65,6 @@ export class ActivityService {
                     const validated = ActivityDataSchema.safeParse(parsed);
                     if (validated.success) {
                         rawLogs.push(validated.data as ActivityData);
-                    } else {
-                        console.warn("Invalid activity data dropped:", validated.error);
                     }
                 } catch (e) {
                     console.error("JSON Parse error:", e);
@@ -116,14 +113,11 @@ export class ActivityService {
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const mutableUsers: any[] = [...existingUsers];
-
             const existingKeySet = new Set(existingUsers.map(u => `${u.discordId}:${u.guildId}`));
             const missingKeys = allKeys.filter(k => !existingKeySet.has(k));
 
-            // 4. Handle New Users (Optimistic Path)
+            // 4. Handle New Users
             if (missingKeys.length > 0) {
-                console.log(`Creating ${missingKeys.length} new users...`);
-
                 const newUsersData = missingKeys.map(k => {
                     const meta = userMetaMap.get(k)!;
                     const safeUsername = meta.username === 'Unknown' ? `User-${meta.discordId.slice(-4)}` : meta.username;
@@ -141,7 +135,6 @@ export class ActivityService {
                 });
 
                 try {
-                    // OPTIMISTIC WRITE
                     await prisma.$transaction([
                         prisma.user.createMany({
                             data: newUsersData.map(u => ({
@@ -160,13 +153,12 @@ export class ActivityService {
                                 userId: u.id,
                                 symbol: u.stockSymbol,
                                 currentPrice: 10.00,
-                                volatility: 0.05,
+                                volatility: 0.1,
                                 totalShares: 1000
                             }))
                         })
                     ]);
 
-                    // Add to mutable list using In-Memory construction (No DB fetch needed)
                     const finalNewUsers = newUsersData.map(u => ({
                         id: u.id,
                         discordId: u.discordId,
@@ -177,90 +169,42 @@ export class ActivityService {
                         stock: {
                             id: u.stockId,
                             currentPrice: new Decimal(10.00),
-                            volatility: new Decimal(0.05)
+                            volatility: new Decimal(0.1)
                         },
                         portfolio: []
                     }));
 
                     mutableUsers.push(...finalNewUsers);
                 } catch (e) {
-                    console.warn(`Optimized creation race condition, triggering fallback.`);
-
-                    // FALLBACK WRITE (Slower, Safer)
-                    const fallbackUsers = await prisma.$transaction(async (tx) => {
-                        await tx.user.createMany({
-                            data: newUsersData.map(u => ({
-                                id: u.id,
-                                discordId: u.discordId,
-                                guildId: u.guildId,
-                                username: u.username,
-                                balance: u.balance,
-                                createdAt: u.createdAt,
-                                updatedAt: u.updatedAt
-                            })),
-                            skipDuplicates: true
-                        });
-
-                        const idsToFetch = missingKeys.map(k => {
-                            const meta = userMetaMap.get(k)!;
-                            return { discordId: meta.discordId, guildId: meta.guildId };
-                        });
-
-                        const usersWithStocks = await tx.user.findMany({
-                            where: { OR: idsToFetch },
-                            select: { id: true, username: true, stock: { select: { id: true } } }
-                        });
-
-                        const usersMissingStock = usersWithStocks.filter(u => !u.stock);
-
-                        if (usersMissingStock.length > 0) {
-                            await tx.stock.createMany({
-                                data: usersMissingStock.map(u => ({
-                                    userId: u.id,
-                                    symbol: u.username.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'X'),
-                                    currentPrice: 10.00,
-                                    volatility: 0.05,
-                                    totalShares: 1000
-                                })),
-                                skipDuplicates: true
-                            });
-                        }
-
-                        // Final Fetch for Calculation
-                        return await tx.user.findMany({
-                            where: { OR: idsToFetch },
-                            select: {
-                                id: true,
-                                discordId: true,
-                                guildId: true,
-                                username: true,
-                                bullhornUntil: true,
-                                balance: true,
-                                stock: { select: { id: true, currentPrice: true, volatility: true } },
-                                portfolio: { select: { shares: true, stock: { select: { id: true, currentPrice: true } } } }
-                            }
-                        });
-                    });
-
-                    mutableUsers.push(...fallbackUsers);
+                    console.error("New user creation failed during flush", e);
                 }
             }
 
             // 5. Calculation Logic
-            // Map users for fast lookup
             const userMap = new Map();
             mutableUsers.forEach(u => userMap.set(`${u.discordId}:${u.guildId}`, u));
 
-            // Aggregate Scores
             for (const log of rawLogs) {
                 const key = `${log.discordId}:${log.guildId}`;
                 const user = userMap.get(key);
                 if (!user) continue;
 
                 let points = 0;
-                if (log.type === 'MESSAGE') points = Math.min(log.value, 100) / 10;
-                else if (log.type === 'VOICE_MINUTE') points = log.value;
-                else if (log.type === 'REACTION_RECEIVED') points = 5;
+                // --- TUNING UPDATES ---
+                if (log.type === 'MESSAGE') {
+                    // Previous: min(val, 100) / 10 -> Max 10 pts
+                    // New: min(val, 200) / 2 -> Max 100 pts
+                    points = Math.min(log.value, 200) / 2;
+                }
+                else if (log.type === 'VOICE_MINUTE') {
+                    // Voice minutes are multiplied by 5 in VoiceService now
+                    points = log.value;
+                }
+                else if (log.type === 'REACTION_RECEIVED') {
+                    // Previous: 5 pts
+                    // New: 20 pts
+                    points = 20;
+                }
 
                 if (user.bullhornUntil && new Date(user.bullhornUntil) > new Date()) {
                     points *= 2;
@@ -269,7 +213,7 @@ export class ActivityService {
                 userScoreMap.set(key, (userScoreMap.get(key) || 0) + points);
             }
 
-            const updatesMap = new Map<string, string>(); // StockId -> Price
+            const updatesMap = new Map<string, string>();
             const netWorthUpdates: { userId: string, netWorth: any }[] = [];
 
             for (const user of mutableUsers) {
@@ -282,13 +226,15 @@ export class ActivityService {
 
                 const scoreLog = new Decimal(Math.log10(score + 1));
 
-                const DAMPENING_FACTOR = 0.01;
+                const DAMPENING_FACTOR = 0.5;
+
                 const change = currentPrice.times(volatility).times(scoreLog).times(DAMPENING_FACTOR);
 
                 let newPrice = currentPrice.plus(change);
 
-                if (newPrice.gt(currentPrice.times(1.5))) newPrice = currentPrice.times(1.5);
-                if (newPrice.lessThan(10.00)) newPrice = new Decimal(10.00);
+                if (newPrice.gt(currentPrice.times(2.0))) newPrice = currentPrice.times(2.0);
+
+                if (newPrice.lessThan(1.00)) newPrice = new Decimal(1.00);
 
                 const newPriceStr = newPrice.toFixed(2);
                 updatesMap.set(user.stock.id, newPriceStr);
@@ -309,7 +255,6 @@ export class ActivityService {
             }
 
             if (updatesMap.size > 0) {
-                // Bulk Update Stock Prices
                 const updateValues = Array.from(updatesMap.entries()).map(([id, price]) =>
                     Prisma.sql`(${id}::text, ${price}::decimal)`
                 );
@@ -321,7 +266,6 @@ export class ActivityService {
                         WHERE s.id = v.id
                     `;
 
-                // Bulk Update Net Worths
                 if (netWorthUpdates.length > 0) {
                     const nwValues = netWorthUpdates.map(u => Prisma.sql`(${u.userId}::text, ${u.netWorth.toFixed(2)}::decimal)`);
                     await prisma.$executeRaw`
@@ -332,13 +276,11 @@ export class ActivityService {
                      `;
                 }
 
-                // Update Redis Leaderboard
                 const pipeline = redisCache.pipeline();
                 netWorthUpdates.forEach(u => {
                     const user = mutableUsers.find(eu => eu.id === u.userId);
                     if (user) {
                         const key = `leaderboard:networth:${user.guildId}`;
-                        // ZADD requires number, so we cast the Decimal
                         pipeline.zadd(key, u.netWorth.toNumber(), u.userId);
                         pipeline.set(`user:${u.userId}:username`, user.username, 'EX', 86400);
                     }
@@ -348,20 +290,15 @@ export class ActivityService {
 
         } catch (error) {
             console.error("CRITICAL FLUSH ERROR:", error);
-
             if (rawItems.length > 0) {
-                console.log(`Recovering ${rawItems.length} items to queue...`);
                 await redisQueue.lpush(this.BUFFER_KEY, ...rawItems);
             }
-
         } finally {
             this.IS_FLUSHING = false;
-
-            // Check if queue still has items and loop immediately if so
             const len = await redisQueue.llen(this.BUFFER_KEY);
             if (len > 0) {
                 setTimeout(() => {
-                    this.flushActivities().catch(e => console.error("Flush Loop Error:", e));
+                    this.flushActivities().catch(console.error);
                 }, 100);
             }
         }

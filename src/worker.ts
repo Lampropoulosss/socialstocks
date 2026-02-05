@@ -19,11 +19,11 @@ setInterval(() => {
 }, 60 * ONE_MINUTE);
 
 setInterval(() => {
-    runJobWithLock('job:decay', 9 * ONE_MINUTE, async () => {
+    runJobWithLock('job:decay', 19 * ONE_MINUTE, async () => {
         console.log("Running Market Decay...");
         await StockService.updateAllStocks();
     });
-}, 10 * ONE_MINUTE);
+}, 20 * ONE_MINUTE);
 
 setInterval(() => {
     runJobWithLock('job:networth_recalc', 55 * ONE_MINUTE, async () => {

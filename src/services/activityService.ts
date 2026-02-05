@@ -197,7 +197,7 @@ export class ActivityService {
                     points = Math.min(log.value, 200) / 2;
                 }
                 else if (log.type === 'VOICE_MINUTE') {
-                    // Voice minutes are multiplied by 5 in VoiceService now
+                    // Voice minutes are multiplied by 2 in VoiceService now
                     points = log.value;
                 }
                 else if (log.type === 'REACTION_RECEIVED') {

@@ -12,13 +12,13 @@ export class StockService {
         const BATCH_SIZE = 1000;
         let processedCount = 0;
         let cursor: string | undefined = undefined;
-        const ONE_HOUR = 60 * 60 * 1000;
+        const GRACE_PERIOD = 2 * 60 * 60 * 1000;
 
         try {
             while (true) {
                 const stocks: { id: string }[] = await prisma.stock.findMany({
                     where: {
-                        updatedAt: { lt: new Date(Date.now() - ONE_HOUR) },
+                        updatedAt: { lt: new Date(Date.now() - GRACE_PERIOD) },
                         currentPrice: { gt: 10.00 },
                         OR: [
                             { frozenUntil: null },
@@ -38,7 +38,7 @@ export class StockService {
 
                 const count = await prisma.$executeRaw`
                     UPDATE "Stock"
-                    SET "currentPrice" = GREATEST("currentPrice" * 0.95, 10.00),
+                    SET "currentPrice" = GREATEST("currentPrice" * 0.99, 10.00),
                         "updatedAt" = NOW()
                     WHERE id IN (${Prisma.join(stockIds)})
                 `;

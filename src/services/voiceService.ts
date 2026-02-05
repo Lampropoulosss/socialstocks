@@ -34,7 +34,7 @@ class VoiceService {
 
         const finalUsername = username || "Unknown";
 
-        const voicePoints = durationMinutes * 5;
+        const voicePoints = durationMinutes * 2;
 
         await ActivityService.bufferActivity({
             discordId,

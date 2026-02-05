@@ -105,6 +105,7 @@ export class ActivityService {
                     discordId: true,
                     guildId: true,
                     bullhornUntil: true,
+                    liquidLuckUntil: true,
                     balance: true,
                     stock: { select: { id: true, currentPrice: true, volatility: true } },
                     portfolio: { select: { shares: true, stock: { select: { id: true, currentPrice: true } } } }
@@ -164,6 +165,7 @@ export class ActivityService {
                         discordId: u.discordId,
                         guildId: u.guildId,
                         bullhornUntil: null,
+                        liquidLuckUntil: null,
                         username: u.username,
                         balance: new Decimal(u.balance),
                         stock: {
@@ -233,6 +235,11 @@ export class ActivityService {
                 if (baseVol < 0.01) baseVol = 0.01;
                 if (baseVol > 0.15) baseVol = 0.15;
 
+                // LIQUID LUCK LOGIC
+                if (user.liquidLuckUntil && new Date(user.liquidLuckUntil) > new Date()) {
+                    baseVol = 0.15;
+                }
+
                 const volatility = new Decimal(baseVol);
 
                 const scoreLog = new Decimal(Math.log10(score + 1));
@@ -285,7 +292,9 @@ export class ActivityService {
                     const nwValues = netWorthUpdates.map(u => Prisma.sql`(${u.userId}::text, ${u.netWorth.toFixed(2)}::decimal)`);
                     await prisma.$executeRaw`
                         UPDATE "User" as u
-                        SET "netWorth" = v.nw, "updatedAt" = NOW()
+                        SET "netWorth" = v.nw, 
+                            "updatedAt" = NOW(), 
+                            "lastActiveAt" = NOW()
                         FROM (VALUES ${Prisma.join(nwValues)}) as v(id, nw)
                         WHERE u.id = v.id
                      `;

@@ -17,7 +17,9 @@ model User {
   updatedAt DateTime @updatedAt
   jailedUntil DateTime?
   bullhornUntil DateTime?
+  liquidLuckUntil DateTime?
   netWorth    Decimal  @default(0.00) @db.Decimal(15, 2)
+  lastActiveAt DateTime @default(now())
 
   stock       Stock?
   portfolio   Portfolio[]

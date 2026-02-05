@@ -12,7 +12,8 @@ module.exports = {
                 .setRequired(true)
                 .addChoices(
                     { name: 'The Bullhorn', value: ItemType.BULLHORN },
-                    { name: 'Price Freeze', value: ItemType.PRICE_FREEZE }
+                    { name: 'Night Shield', value: ItemType.PRICE_FREEZE },
+                    { name: 'Liquid Luck', value: ItemType.LIQUID_LUCK }
                 ))
         .addUserOption(option =>
             option.setName('target')

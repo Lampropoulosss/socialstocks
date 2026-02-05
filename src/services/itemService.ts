@@ -3,7 +3,8 @@ import prisma from '../prisma';
 
 export enum ItemType {
     BULLHORN = 'BULLHORN',
-    PRICE_FREEZE = 'PRICE_FREEZE'
+    PRICE_FREEZE = 'PRICE_FREEZE',
+    LIQUID_LUCK = 'LIQUID_LUCK'
 }
 
 export interface ShopItem {
@@ -19,18 +20,26 @@ export const SHOP_ITEMS: ShopItem[] = [
     {
         id: ItemType.BULLHORN,
         name: 'The Bullhorn',
-        description: '2x Activity Points (30 mins)',
-        price: 200,
-        durationMinutes: 30,
+        description: '2x Activity Points (45 mins)',
+        price: 150,
+        durationMinutes: 45,
         cooldownMinutes: 60
     },
     {
         id: ItemType.PRICE_FREEZE,
-        name: 'Price Freeze',
-        description: 'Prevent stock price drop (3 hours)',
-        price: 1000,
-        durationMinutes: 180,
-        cooldownMinutes: 360
+        name: 'Night Shield',
+        description: 'Prevent stock price drop (12 hours)',
+        price: 500,
+        durationMinutes: 720,
+        cooldownMinutes: 1440
+    },
+    {
+        id: ItemType.LIQUID_LUCK,
+        name: 'Liquid Luck',
+        description: 'Max Volatility (1 Hour)',
+        price: 800,
+        durationMinutes: 60,
+        cooldownMinutes: 120
     }
 ];
 
@@ -67,6 +76,10 @@ export class ItemService {
         } else if (itemId === ItemType.PRICE_FREEZE) {
             if (target.stock?.frozenUntil && target.stock.frozenUntil > now) {
                 throw new Error("This stock is already frozen.");
+            }
+        } else if (itemId === ItemType.LIQUID_LUCK) {
+            if (target.liquidLuckUntil && target.liquidLuckUntil > now) {
+                throw new Error("This effect is already active on the target.");
             }
         }
 
@@ -115,6 +128,11 @@ export class ItemService {
                 await tx.user.update({
                     where: { id: target.id },
                     data: { bullhornUntil: activeUntil }
+                });
+            } else if (itemId === ItemType.LIQUID_LUCK) {
+                await tx.user.update({
+                    where: { id: target.id },
+                    data: { liquidLuckUntil: activeUntil }
                 });
             }
         });

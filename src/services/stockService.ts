@@ -18,7 +18,9 @@ export class StockService {
             while (true) {
                 const stocks: { id: string }[] = await prisma.stock.findMany({
                     where: {
-                        updatedAt: { lt: new Date(Date.now() - GRACE_PERIOD) },
+                        user: {
+                            lastActiveAt: { lt: new Date(Date.now() - GRACE_PERIOD) }
+                        },
                         currentPrice: { gt: 10.00 },
                         OR: [
                             { frozenUntil: null },

@@ -1,3 +1,14 @@
+name: Docker Build & Publish
+
+# --- THIS WAS MISSING ---
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest

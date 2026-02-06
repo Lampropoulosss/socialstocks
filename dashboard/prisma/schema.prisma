@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+  compilerBuild = "fast"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  discordId String
+  guildId   String
+  username  String
+  balance   Decimal  @default(100.00) @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  jailedUntil DateTime?
+  bullhornUntil DateTime?
+  liquidLuckUntil DateTime?
+  netWorth    Decimal  @default(0.00) @db.Decimal(15, 2)
+  lastActiveAt DateTime @default(now())
+
+  stock       Stock?
+  portfolio   Portfolio[]
+
+  @@unique([discordId, guildId])
+  @@index([guildId])
+  @@index([netWorth(sort: Desc)])
+  @@index([updatedAt])
+}
+
+model Stock {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol      String   // e.g. "USR" (derived from username)
+  currentPrice Decimal @default(10.00) @db.Decimal(10, 2)
+  volatility  Decimal  @default(0.05) @db.Decimal(5, 4) // How much it swings
+  totalShares Int      @default(1000)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  frozenUntil DateTime?
+
+  portfolios  Portfolio[]
+
+  @@index([currentPrice(sort: Desc)])
+  @@index([updatedAt])
+}
+
+model Portfolio {
+  id        String   @id @default(uuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  stockId   String
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  shares    Int      @default(0)
+  averageBuyPrice Decimal @default(0.00) @db.Decimal(10, 2)
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, stockId])
+
+  @@index([stockId, shares(sort: Desc)])
+}

@@ -7,6 +7,7 @@ services:
       - REDIS_CACHE_URL=redis://redis-cache:6379
       - REDIS_QUEUE_URL=redis://redis-queue:6379
       - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - CLIENT_ID=${CLIENT_ID}
       - DB_POOL_SIZE=5          # Lower pool size per container
       - TOTAL_SHARDS=2
       - CLUSTERS=1              # Run 1 cluster (container) handling both shards
@@ -19,6 +20,24 @@ services:
       resources:
         limits:
           memory: 1024M        # Hard limit to prevent crashing the OS
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - NODE_ENV=production
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   worker:
     build: .

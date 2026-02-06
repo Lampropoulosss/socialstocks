@@ -1,13 +1,11 @@
 name: Docker Build & Publish
 
-# --- THIS WAS MISSING ---
 on:
   push:
     branches: [ "main" ]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -20,6 +18,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Lowercase Repo Name
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -27,23 +29,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- BUILD 1: BOT & WORKER (Default Dockerfile) ---
       - name: Build and push Bot image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # We keep this as 'latest' for the bot/worker
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-      # --- BUILD 2: DASHBOARD (Dashboard Dockerfile) ---
       - name: Build and push Dashboard image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: dashboard/Dockerfile
           push: true
-          # We create a specific tag for the dashboard
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
 
   deploy:
@@ -60,14 +58,10 @@ jobs:
           script: |
             cd /root/socialstocks-bot
             
-            # 1. Login
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # 2. Pull ALL images (Bot and Dashboard)
             docker compose pull
 
-            # 3. Restart ALL services (Bot, Worker, and Dashboard)
             docker compose up -d --remove-orphans
 
-            # 4. Cleanup
             docker image prune -f

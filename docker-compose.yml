@@ -23,11 +23,11 @@ services:
 
   dashboard:
     build:
-      context: ./dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: dashboard/Dockerfile
     restart: always
     ports:
-      - "3000:3000"
+      - "3040:3040"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - DISCORD_TOKEN=${DISCORD_TOKEN}

@@ -12,7 +12,7 @@ function App() {
                 <div className="container mx-auto px-4 h-16 flex items-center justify-between">
                     <Link to="/" className="flex items-center gap-2 font-bold text-xl tracking-tight text-white hover:opacity-80 transition-opacity">
                         <LayoutDashboard className="w-6 h-6 text-primary" />
-                        <span>SocialStocks<span className="text-primary">.Bot</span></span>
+                        <span>SocialStocks</span>
                     </Link>
                 </div>
             </nav>

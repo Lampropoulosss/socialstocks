@@ -1,13 +1,3 @@
-name: Docker Build & Publish
-
-on:
-  push:
-    branches: [ "main" ]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -26,20 +16,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: type=raw,value=latest
-
-      - name: Build and push Docker image
+      # --- BUILD 1: BOT & WORKER (Default Dockerfile) ---
+      - name: Build and push Bot image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # We keep this as 'latest' for the bot/worker
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      # --- BUILD 2: DASHBOARD (Dashboard Dockerfile) ---
+      - name: Build and push Dashboard image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: dashboard/Dockerfile
+          push: true
+          # We create a specific tag for the dashboard
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
 
   deploy:
     needs: build-and-push
@@ -54,16 +48,15 @@ jobs:
           port: ${{ secrets.SERVER_SSH_PORT }}
           script: |
             cd /root/socialstocks-bot
-
-            # 1. Login to Registry
+            
+            # 1. Login
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # 2. Pull the latest image for both services
-            docker compose pull bot worker
+            # 2. Pull ALL images (Bot and Dashboard)
+            docker compose pull
 
-            # 3. Restart the services (Updates image & recreates containers)
-            # We explicitly specify bot and worker here
-            docker compose up -d bot worker
+            # 3. Restart ALL services (Bot, Worker, and Dashboard)
+            docker compose up -d --remove-orphans
 
-            # 4. Cleanup unused images
+            # 4. Cleanup
             docker image prune -f

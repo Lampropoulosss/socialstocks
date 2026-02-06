@@ -4,13 +4,15 @@ import { Server, ChevronRight, Users } from 'lucide-react';
 
 interface Guild {
     id: string;
-    name: string;
+    name: string | null;
     icon: string | null;
+    userCount: number;
 }
 
 const ServerList: React.FC = () => {
     const [guilds, setGuilds] = useState<Guild[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         fetch('/api/guilds')
@@ -24,6 +26,28 @@ const ServerList: React.FC = () => {
                 setLoading(false);
             });
     }, []);
+
+    const loadGuildDetails = async (e: React.MouseEvent, guildId: string) => {
+        e.preventDefault(); // Prevent navigation if inside Link
+        e.stopPropagation();
+
+        setLoadingDetails(prev => ({ ...prev, [guildId]: true }));
+        try {
+            const res = await fetch(`/api/guilds/${guildId}/details`);
+            const data = await res.json();
+
+            setGuilds(prev => prev.map(g => {
+                if (g.id === guildId) {
+                    return { ...g, ...data };
+                }
+                return g;
+            }));
+        } catch (err) {
+            console.error("Failed to load details", err);
+        } finally {
+            setLoadingDetails(prev => ({ ...prev, [guildId]: false }));
+        }
+    };
 
     if (loading) {
         return (
@@ -45,13 +69,13 @@ const ServerList: React.FC = () => {
                     <Link
                         key={guild.id}
                         to={`/server/${guild.id}`}
-                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-6 hover:bg-white/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/10"
+                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-6 hover:bg-white/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/10 flex flex-col gap-4"
                     >
                         <div className="flex items-center gap-4">
                             {guild.icon ? (
                                 <img
                                     src={guild.icon}
-                                    alt={guild.name}
+                                    alt={guild.name || 'Server'}
                                     className="w-16 h-16 rounded-2xl shadow-lg group-hover:shadow-primary/20 transition-all"
                                 />
                             ) : (
@@ -61,15 +85,30 @@ const ServerList: React.FC = () => {
                             )}
 
                             <div className="flex-1 min-w-0">
-                                <h2 className="text-xl font-semibold truncate text-white">{guild.name}</h2>
+                                {guild.name ? (
+                                    <h2 className="text-xl font-semibold truncate text-white">{guild.name}</h2>
+                                ) : (
+                                    <h2 className="text-sm font-mono text-muted-foreground truncate">ID: {guild.id}</h2>
+                                )}
+
                                 <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1 group-hover:text-primary/80 transition-colors">
                                     <Users className="w-3 h-3" />
-                                    <span>View Users</span>
+                                    <span>{guild.userCount} Users</span>
                                 </div>
                             </div>
 
-                            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-white group-hover:translate-x-1 transition-all" />
+                            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-white group-hover:translate-x-1 transition-all self-center" />
                         </div>
+
+                        {!guild.name && (
+                            <button
+                                onClick={(e) => loadGuildDetails(e, guild.id)}
+                                disabled={loadingDetails[guild.id]}
+                                className="w-full mt-2 py-2 px-4 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loadingDetails[guild.id] ? 'Loading...' : 'Load Server Info'}
+                            </button>
+                        )}
                     </Link>
                 ))}
             </div>

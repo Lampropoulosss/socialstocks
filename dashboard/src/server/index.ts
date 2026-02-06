@@ -12,7 +12,7 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 
-dotenv.config({ path: path.join(process.cwd(), '../.env') }); // Load root .env
+dotenv.config({ path: path.join(process.cwd(), '../.env') });
 
 if (!process.env.DATABASE_URL) {
     console.error("Missing DATABASE_URL");
@@ -46,11 +46,9 @@ if (!DISCORD_TOKEN) {
 const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 app.register(cors, {
-    origin: '*', // For dev
+    origin: '*',
 });
 
-// Serve frontend in production (after build)
-// In dev, Vite handles it.
 if (process.env.NODE_ENV === 'production') {
     app.register(fastifyStatic, {
         root: path.join(__dirname, '../../dist/client'),
@@ -58,39 +56,45 @@ if (process.env.NODE_ENV === 'production') {
     });
 }
 
-// Routes
 app.get('/api/guilds', async (_request, reply) => {
     try {
-        // Get unique guild IDs from DB
-        const users = await prisma.user.findMany({
-            select: { guildId: true },
-            distinct: ['guildId'],
+        const guildCounts = await prisma.user.groupBy({
+            by: ['guildId'],
+            _count: {
+                _all: true,
+            },
         });
 
-        const guildIds = users.map(u => u.guildId);
+        const guilds = guildCounts.map(g => ({
+            id: g.guildId,
+            userCount: g._count._all,
+            name: null,
+            icon: null,
+        }));
 
-        // Fetch guild info from Discord
-        // Limit concurrency or use Promise.all
-        const guildInfos = await Promise.all(
-            guildIds.map(async (id) => {
-                try {
-                    const guild: any = await rest.get(Routes.guild(id));
-                    return {
-                        id: guild.id,
-                        name: guild.name,
-                        icon: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
-                    };
-                } catch (e) {
-                    console.error(`Failed to fetch guild ${id}`, e);
-                    return { id, name: 'Unknown Guild', icon: null };
-                }
-            })
-        );
-
-        return guildInfos;
+        return guilds;
     } catch (err) {
         app.log.error(err);
         reply.status(500).send({ error: 'Internal Server Error' });
+    }
+});
+
+app.get('/api/guilds/:id/details', async (request, _reply) => {
+    const { id } = request.params as { id: string };
+    try {
+        const guild: any = await rest.get(Routes.guild(id));
+        return {
+            id: guild.id,
+            name: guild.name,
+            icon: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
+        };
+    } catch (e) {
+        console.error(`Failed to fetch details for guild ${id}`, e);
+        return {
+            id,
+            name: 'Unknown Guild',
+            icon: null
+        };
     }
 });
 
@@ -102,12 +106,6 @@ app.get('/api/guilds/:id/users', async (request, reply) => {
             orderBy: { netWorth: 'desc' },
         });
 
-        // Optionally fetch avatars from Discord if needed, but DB has basics.
-        // We already have username in DB. Avatar is not in DB schema provided.
-        // If we want avatars, we might need to fetch user info.
-        // To keep it fast, we return what we have, and maybe fetch avatars client-side or batch fetch here.
-        // Fetching every user from Discord API might hit ratelimits.
-        // For now, return DB data.
         return users;
     } catch (err) {
         app.log.error(err);
@@ -115,11 +113,9 @@ app.get('/api/guilds/:id/users', async (request, reply) => {
     }
 });
 
-// Schema for updating user
 const UpdateUserSchema = z.object({
     balance: z.number().optional(),
     netWorth: z.number().optional(),
-    // Add other fields as needed
 });
 
 app.patch('/api/users/:id', async (request, reply) => {
@@ -142,7 +138,6 @@ app.patch('/api/users/:id', async (request, reply) => {
     }
 });
 
-// Fallback for SPA routing in production
 if (process.env.NODE_ENV === 'production') {
     app.setNotFoundHandler((_req, res) => {
         res.sendFile('index.html');

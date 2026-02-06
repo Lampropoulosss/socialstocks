@@ -34,7 +34,7 @@ if (process.env.NODE_ENV === 'production') {
 const start = async () => {
     try {
         const host = '0.0.0.0';
-        const port = 3000;
+        const port = 3040;
         await app.listen({ host, port });
         console.log(`Server running at http://${host}:${port}`);
     } catch (err) {

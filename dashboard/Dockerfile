@@ -49,6 +49,6 @@ COPY --chown=node:node --from=builder /app/dashboard/package.json ./package.json
 # Optional: Copy schema if your app needs to read it at runtime
 COPY --chown=node:node --from=builder /app/prisma ./prisma
 
-EXPOSE 3000
+EXPOSE 3040
 
 CMD ["node", "dist/index.js"]

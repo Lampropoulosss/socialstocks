@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Server, ChevronRight, Users } from 'lucide-react';
+import { Server, ChevronRight, Users, Search } from 'lucide-react';
 
 interface Guild {
     id: string;
@@ -13,6 +13,12 @@ const ServerList: React.FC = () => {
     const [guilds, setGuilds] = useState<Guild[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredGuilds = guilds.filter(guild =>
+        guild.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (guild.name && guild.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
 
     useEffect(() => {
         fetch('/api/guilds')
@@ -59,13 +65,28 @@ const ServerList: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <header>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Connected Servers</h1>
-                <p className="text-muted-foreground mt-2">Manage users and economy for all servers using the bot.</p>
+            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Connected Servers</h1>
+                    <p className="text-muted-foreground mt-2">Manage users and economy for all servers using the bot.</p>
+                </div>
+
+                <div className="relative w-full md:w-64">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Search className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <input
+                        type="text"
+                        placeholder="Search by ID or Name..."
+                        className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-white placeholder:text-muted-foreground"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {guilds.map(guild => (
+                {filteredGuilds.map(guild => (
                     <Link
                         key={guild.id}
                         to={`/server/${guild.id}`}
@@ -111,6 +132,12 @@ const ServerList: React.FC = () => {
                         )}
                     </Link>
                 ))}
+
+                {filteredGuilds.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-muted-foreground">
+                        {searchQuery ? `No servers found matching "${searchQuery}"` : 'No servers found'}
+                    </div>
+                )}
             </div>
         </div>
     );

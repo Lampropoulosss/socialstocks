@@ -1,4 +1,5 @@
 import { Events, Guild } from 'discord.js';
+import { updateBotStats } from '../utils/updateStats';
 import prisma from '../prisma';
 import { redisCache } from '../redis';
 import { voiceService } from '../services/voiceService';
@@ -7,6 +8,7 @@ module.exports = {
     name: Events.GuildDelete,
     async execute(guild: Guild) {
         console.log(`Left guild: ${guild.name} (${guild.id}). Cleaning up data...`);
+        await updateBotStats(guild.client);
 
         try {
             const users = await prisma.user.findMany({

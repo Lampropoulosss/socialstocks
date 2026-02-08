@@ -9,7 +9,12 @@ import userRoutes from './routes/users';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app: FastifyInstance = Fastify({ logger: true });
+const app: FastifyInstance = Fastify({
+    disableRequestLogging: true,
+    logger: {
+        level: process.env.LOG_LEVEL || 'warn',
+    },
+});
 
 app.register(cors, {
     origin: '*',

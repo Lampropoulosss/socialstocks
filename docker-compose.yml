@@ -8,6 +8,7 @@ services:
       - REDIS_QUEUE_URL=redis://redis-queue:6379
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - CLIENT_ID=${CLIENT_ID}
+      - TOP_GG_TOKEN=${TOP_GG_TOKEN}
       - DB_POOL_SIZE=5          # Lower pool size per container
       - TOTAL_SHARDS=2
       - CLUSTERS=1              # Run 1 cluster (container) handling both shards
@@ -31,7 +32,8 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - NODE_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL}
+      - NODE_ENV=${NODE_ENV}
     depends_on:
       - postgres
     deploy:

@@ -1,6 +1,6 @@
 import { Client, Events } from 'discord.js';
 import { voiceService } from '../services/voiceService';
-import { startStatusUpdater } from '../services/statusService';
+import { updateBotStats } from '../utils/updateStats';
 
 module.exports = {
     name: Events.ClientReady,
@@ -8,7 +8,7 @@ module.exports = {
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag} (Shard ${client.shard?.ids[0] ?? 0})`);
 
-        startStatusUpdater(client);
+        updateBotStats(client);
 
         console.log("Cleaning up ghost sessions...");
         const guilds = client.guilds.cache.values();

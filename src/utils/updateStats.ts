@@ -15,8 +15,6 @@ export async function updateBotStats(client: Client) {
             console.log('Debounce finished. Calculating and posting stats...');
 
             const serverCount = client.guilds.cache.size;
-            const shardId = client.shard?.ids[0] ?? 0;
-            const shardCount = client.shard?.count ?? 1;
 
             let totalServerCount = serverCount;
             if (client.shard) {
@@ -32,9 +30,7 @@ export async function updateBotStats(client: Client) {
             if (!clientId || !topggToken) return;
 
             const body = {
-                server_count: serverCount,
-                shard_id: shardId,
-                shard_count: shardCount
+                server_count: totalServerCount
             };
 
             const response = await fetch(`https://top.gg/api/bots/${clientId}/stats`, {
@@ -47,7 +43,7 @@ export async function updateBotStats(client: Client) {
             });
 
             if (response.ok) {
-                console.log(`[Top.gg] Stats updated: ${serverCount} servers (Shard ${shardId})`);
+                console.log(`[Top.gg] Global stats updated: ${totalServerCount} servers`);
             } else {
                 console.error(`[Top.gg] Failed to update: ${response.statusText}`);
             }

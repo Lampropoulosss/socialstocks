@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last Updated:** 1th of February 2026
+**Last Updated:** February 8, 2026
 
 By inviting **SocialStocks** ("the Bot") to your Discord server or using its features, you agree to these Terms of Service.
 

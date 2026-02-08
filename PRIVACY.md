@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last Updated:** [1th of February 2026]
+**Last Updated:** February 8, 2026
 
 **SocialStocks** ("we", "our", or "the Bot") is committed to protecting your privacy. This Privacy Policy explains what data we collect, how we use it, and your rights regarding your information.
 
@@ -23,6 +23,7 @@ The Bot processes the following data to calculate your "Stock Price." **We do no
 * **Virtual Balance:** Your current holding of the in-game currency.
 * **Portfolio Holdings:** Records of virtual stocks you have bought or sold.
 * **Transaction History:** Logs of buy/sell orders for audit and ledger purposes.
+* **Inventory Items:** Records of consumable items (e.g., "Liquid Luck", "Bullhorn") you own or have active.
 
 ## 2. How We Use Data
 

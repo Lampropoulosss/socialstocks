@@ -37,10 +37,13 @@ model Stock {
   symbol      String   // e.g. "USR" (derived from username)
   currentPrice Decimal @default(10.00) @db.Decimal(10, 2)
   volatility  Decimal  @default(0.05) @db.Decimal(5, 4) // How much it swings
-  totalShares Int      @default(1000)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   frozenUntil DateTime?
+
+  totalShares       Int      @default(1000) // The Maximum Supply
+  sharesOutstanding Int      @default(0)    // How many are currently owned
+  maxHoldingPerUser Int      @default(200)  // Max shares one investor can hold (e.g., 20%)
 
   portfolios  Portfolio[]
 

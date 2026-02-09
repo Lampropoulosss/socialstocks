@@ -40,7 +40,11 @@ export class StockService {
 
                 const count = await prisma.$executeRaw`
                     UPDATE "Stock"
-                    SET "currentPrice" = GREATEST("currentPrice" * 0.99, 10.00),
+                    SET "currentPrice" = CASE 
+                            WHEN "currentPrice" > 100.00 THEN GREATEST("currentPrice" * 0.90, 100.00)
+                            WHEN "currentPrice" > 20.00 THEN GREATEST("currentPrice" * 0.95, 20.00)
+                            ELSE GREATEST("currentPrice" * 0.99, 10.00)
+                        END,
                         "updatedAt" = NOW()
                     WHERE id IN (${Prisma.join(stockIds)})
                 `;

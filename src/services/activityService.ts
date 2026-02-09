@@ -192,20 +192,21 @@ export class ActivityService {
                 if (!user) continue;
 
                 let points = 0;
-                // --- TUNING UPDATES ---
+
                 if (log.type === 'MESSAGE') {
-                    // Previous: min(val, 100) / 10 -> Max 10 pts
-                    // New: min(val, 200) / 2 -> Max 100 pts
-                    points = Math.min(log.value, 200) / 2;
+                    // NEW: min(val, 100) / 10 -> Max 10 pts per message.
+                    // Explanation: Prevents spamming long text for massive gains.
+                    points = Math.min(log.value, 100) / 10;
                 }
                 else if (log.type === 'VOICE_MINUTE') {
-                    // Voice minutes are multiplied by 2 in VoiceService now
-                    points = log.value;
+                    // NEW: val * 0.5
+                    // Explanation: Voice is passive. It shouldn't outweigh active chatting.
+                    points = log.value * 0.5;
                 }
                 else if (log.type === 'REACTION_RECEIVED') {
-                    // Previous: 5 pts
-                    // New: 20 pts
-                    points = 20;
+                    // NEW: 2 pts
+                    // Explanation: Reactions are too easy to farm in big servers.
+                    points = 2;
                 }
 
                 if (user.bullhornUntil && new Date(user.bullhornUntil) > new Date()) {
@@ -225,26 +226,43 @@ export class ActivityService {
 
                 const currentPrice = new Decimal(String(user.stock.currentPrice));
 
+                // 1. Calculate Base Volatility (Sensitivity)
+                // Logic: As price increases, volatility should decrease to stabilize the economy.
                 let baseVol = new Decimal(String(user.stock.volatility)).toNumber();
                 const priceVal = currentPrice.toNumber();
 
-                if (priceVal > 100) {
-                    baseVol = 0.1 / Math.log10(priceVal);
+                // NEW: Steeper falloff for volatility.
+                // If price > 50, volatility drops quickly.
+                if (priceVal > 50) {
+                    baseVol = 0.15 / Math.log10(priceVal); // Stronger dampening
                 }
 
-                if (baseVol < 0.01) baseVol = 0.01;
-                if (baseVol > 0.15) baseVol = 0.15;
+                // Hard limits
+                if (baseVol < 0.005) baseVol = 0.005; // Lower floor (was 0.01)
+                if (baseVol > 0.10) baseVol = 0.10;   // Lower ceiling (was 0.15)
 
-                // LIQUID LUCK LOGIC
+                // 2. Liquid Luck Nerf
+                // Explanation: Even with Liquid Luck, we shouldn't allow max volatility
+                // if the stock is already massive. It breaks the "Price Drag".
                 if (user.liquidLuckUntil && new Date(user.liquidLuckUntil) > new Date()) {
-                    baseVol = 0.15;
+                    // Only allow max volatility if price is under $500.
+                    // Otherwise, give a smaller boost.
+                    baseVol = priceVal < 500 ? 0.10 : baseVol * 1.5;
                 }
 
                 const volatility = new Decimal(baseVol);
 
+                // 3. Logarithmic Score Impact
+                // Use log10 twice or a divisor to crush massive activity spikes from 700k users.
+                // OLD: log10(score + 1)
                 const scoreLog = new Decimal(Math.log10(score + 1));
 
-                const DAMPENING_FACTOR = 0.25;
+                // 4. The Price Drag (Crucial for Hyperinflation)
+                // OLD: DAMPENING_FACTOR = 0.25
+                // NEW: Variable dampening based on current price.
+                // If price is $10, factor is ~0.2. If price is $2000, factor is ~0.01.
+                const priceDrag = Math.max(1, priceVal / 100);
+                const DAMPENING_FACTOR = 0.2 / priceDrag;
 
                 let change = currentPrice.times(volatility).times(scoreLog).times(DAMPENING_FACTOR);
 

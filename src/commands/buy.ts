@@ -30,7 +30,7 @@ module.exports = {
         const buyerId = interaction.user.id;
         const guildId = interaction.guildId!;
 
-
+        // 1. Basic Checks
         if (targetUser.id === buyerId) {
             const embed = new EmbedBuilder()
                 .setColor(Colors.Danger)
@@ -48,9 +48,7 @@ module.exports = {
         }
 
         const buyer = await prisma.user.findUnique({
-            where: {
-                discordId_guildId: { discordId: buyerId, guildId }
-            }
+            where: { discordId_guildId: { discordId: buyerId, guildId } }
         });
 
         if (!buyer) {
@@ -63,10 +61,9 @@ module.exports = {
 
         try {
             const result = await prisma.$transaction(async (tx) => {
+                // 2. Fetch Target Stock
                 const targetUserDb = await tx.user.findUnique({
-                    where: {
-                        discordId_guildId: { discordId: targetUser.id, guildId }
-                    },
+                    where: { discordId_guildId: { discordId: targetUser.id, guildId } },
                     include: { stock: true }
                 });
 
@@ -75,38 +72,69 @@ module.exports = {
                 }
 
                 const currentStock = targetUserDb.stock;
+
+                // 3. Fetch Portfolio ONCE (Optimization)
+                const portfolio = await tx.portfolio.findUnique({
+                    where: { ownerId_stockId: { ownerId: buyer.id, stockId: currentStock.id } }
+                });
+
+                // --- CONSTRAINT CHECKS ---
+
+                // Check 1: Global Supply
+                // We use >= here to be safe, though > implies the same if amount is integer
+                if (currentStock.sharesOutstanding + amount > currentStock.totalShares) {
+                    const remaining = currentStock.totalShares - currentStock.sharesOutstanding;
+                    throw new Error(`Sold out! Only ${Math.max(0, remaining)} shares remaining.`);
+                }
+
+                // Check 2: Individual Cap
+                const currentHoldings = portfolio ? portfolio.shares : 0;
+                if (currentHoldings + amount > currentStock.maxHoldingPerUser) {
+                    throw new Error(`Holding limit reached! You have ${currentHoldings}/${currentStock.maxHoldingPerUser} shares.`);
+                }
+
+                // 4. Financial Checks
                 const currentPrice = new Decimal(String(currentStock.currentPrice));
 
                 if (maxPriceInput) {
                     const maxPrice = new Decimal(maxPriceInput);
                     if (currentPrice.greaterThan(maxPrice)) {
-                        throw new Error(`Price spike detected! Current: $${currentPrice.toFixed(2)}, Max: $${maxPrice.toFixed(2)}. Transaction aborted.`);
+                        throw new Error(`Price spike! Current: $${currentPrice.toFixed(2)} > Max: $${maxPrice.toFixed(2)}.`);
                     }
                 }
 
                 const cost = currentPrice.times(amount);
 
-                const freshBuyer = await tx.user.findUnique({
+                // Re-fetch buyer within transaction to ensure lock/latest balance
+                const freshBuyer = await tx.user.findUniqueOrThrow({
                     where: { id: buyer.id }
                 });
 
-                const balance = new Decimal(String(freshBuyer?.balance || 0));
+                const balance = new Decimal(String(freshBuyer.balance));
 
                 if (balance.lessThan(cost)) {
                     throw new Error(`Insufficient funds. Cost: $${cost.toFixed(2)}, Balance: $${balance.toFixed(2)}`);
                 }
 
+                // 5. Execute Updates
+
+                // Deduct Balance
                 await tx.user.update({
                     where: { id: buyer.id },
                     data: { balance: { decrement: cost.toFixed(2) } }
                 });
 
-                const portfolio = await tx.portfolio.findUnique({
-                    where: { ownerId_stockId: { ownerId: buyer.id, stockId: currentStock.id } }
+                // Increment Global Supply
+                await tx.stock.update({
+                    where: { id: currentStock.id },
+                    data: { sharesOutstanding: { increment: amount } }
                 });
 
+                // Update Portfolio
                 if (portfolio) {
+                    // Update existing
                     const totalShares = portfolio.shares + amount;
+                    // Weighted Average Formula: ((OldPrice * OldShares) + (NewPrice * NewShares)) / TotalShares
                     const oldTotalCost = new Decimal(String(portfolio.averageBuyPrice)).times(portfolio.shares);
                     const newAverage = oldTotalCost.plus(cost).div(totalShares);
 
@@ -118,6 +146,7 @@ module.exports = {
                         }
                     });
                 } else {
+                    // Create new
                     await tx.portfolio.create({
                         data: {
                             ownerId: buyer.id,

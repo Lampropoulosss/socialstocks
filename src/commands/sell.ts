@@ -25,13 +25,9 @@ module.exports = {
         const sellerDiscordId = interaction.user.id;
         const guildId = interaction.guildId!;
 
+        // 1. Basic User Checks (No Transaction Needed yet)
         const seller = await prisma.user.findUnique({
             where: { discordId_guildId: { discordId: sellerDiscordId, guildId } }
-        });
-
-        const targetUserDb = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId: targetUser.id, guildId } },
-            include: { stock: true }
         });
 
         if (!seller) {
@@ -42,48 +38,57 @@ module.exports = {
             return;
         }
 
-        if (!targetUserDb || !targetUserDb.stock) {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Danger)
-                .setDescription("🚫 Stock not found.");
-            await interaction.editReply({ embeds: [embed] });
-            return;
-        }
-
-        const sellerId = seller.id;
-        const stock = targetUserDb.stock;
-
-        const portfolio = await prisma.portfolio.findUnique({
-            where: { ownerId_stockId: { ownerId: sellerId, stockId: stock.id } }
-        });
-
-        if (!portfolio || portfolio.shares < amount) {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Danger)
-                .setDescription(`🚫 You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
-            await interaction.editReply({ embeds: [embed] });
-            return;
-        }
-
-        const TAX_RATE = new Decimal(0.10);
-        const currentPrice = new Decimal(String(stock.currentPrice));
-        const sharesToSell = new Decimal(amount);
-
-        const grossRevenue = currentPrice.times(sharesToSell);
-        const tax = grossRevenue.times(TAX_RATE).toDecimalPlaces(2);
-        const netRevenue = grossRevenue.minus(tax);
-
-        const averageBuyPrice = new Decimal(String(portfolio.averageBuyPrice));
-        const costBasis = averageBuyPrice.times(sharesToSell);
-        const profit = netRevenue.minus(costBasis);
-
         try {
-            await prisma.$transaction(async (tx) => {
+            // 2. Everything sensitive moves INSIDE the transaction
+            const result = await prisma.$transaction(async (tx) => {
+
+                // A. Re-fetch Target & Stock to be safe
+                const targetUserDb = await tx.user.findUnique({
+                    where: { discordId_guildId: { discordId: targetUser.id, guildId } },
+                    include: { stock: true }
+                });
+
+                if (!targetUserDb || !targetUserDb.stock) {
+                    throw new Error("🚫 Stock not found.");
+                }
+
+                const stock = targetUserDb.stock;
+
+                // B. Fetch Portfolio (INSIDE TX) to lock/verify current state
+                const portfolio = await tx.portfolio.findUnique({
+                    where: { ownerId_stockId: { ownerId: seller.id, stockId: stock.id } }
+                });
+
+                if (!portfolio || portfolio.shares < amount) {
+                    throw new Error(`🚫 You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
+                }
+
+                // C. Calculate Finances
+                const TAX_RATE = new Decimal(0.10);
+                const currentPrice = new Decimal(String(stock.currentPrice));
+                const sharesToSell = new Decimal(amount);
+
+                const grossRevenue = currentPrice.times(sharesToSell);
+                const tax = grossRevenue.times(TAX_RATE).toDecimalPlaces(2);
+                const netRevenue = grossRevenue.minus(tax);
+
+                const averageBuyPrice = new Decimal(String(portfolio.averageBuyPrice));
+                const costBasis = averageBuyPrice.times(sharesToSell);
+                const profit = netRevenue.minus(costBasis);
+
+                // D. Update Balance
                 await tx.user.update({
-                    where: { id: sellerId },
+                    where: { id: seller.id },
                     data: { balance: { increment: netRevenue.toFixed(2) } }
                 });
 
+                // E. Update Global Supply (Decrement sharesOutstanding)
+                await tx.stock.update({
+                    where: { id: stock.id },
+                    data: { sharesOutstanding: { decrement: amount } }
+                });
+
+                // F. Update Portfolio
                 if (portfolio.shares === amount) {
                     await tx.portfolio.delete({ where: { id: portfolio.id } });
                 } else {
@@ -92,28 +97,35 @@ module.exports = {
                         data: { shares: { decrement: amount } }
                     });
                 }
+
+                return {
+                    symbol: stock.symbol,
+                    netRevenue,
+                    tax,
+                    profit
+                };
             });
 
-            const profitSign = profit.greaterThanOrEqualTo(0) ? '+' : '-';
+            // 3. Send Success Response (Outside TX)
+            const profitSign = result.profit.greaterThanOrEqualTo(0) ? '+' : '-';
 
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
                 .setTitle("✅ Sale Successful")
-                .setDescription(`Sold **${amount}** shares of **${stock.symbol}**.`)
+                .setDescription(`Sold **${amount}** shares of **${result.symbol}**.`)
                 .addFields(
-                    { name: 'Net Revenue', value: `$${netRevenue.toFixed(2)}`, inline: true },
-                    { name: 'Tax Paid', value: `$${tax.toFixed(2)}`, inline: true },
-                    { name: 'Profit', value: `${profitSign}$${profit.abs().toFixed(2)}`, inline: true }
+                    { name: 'Net Revenue', value: `$${result.netRevenue.toFixed(2)}`, inline: true },
+                    { name: 'Tax Paid', value: `$${result.tax.toFixed(2)}`, inline: true },
+                    { name: 'Profit', value: `${profitSign}$${result.profit.abs().toFixed(2)}`, inline: true }
                 );
 
             await interaction.editReply({ embeds: [embed] });
 
-        } catch (error) {
-            console.error(error);
+        } catch (error: any) {
             const embed = new EmbedBuilder()
                 .setColor(Colors.Danger)
                 .setTitle("❌ Transaction Failed")
-                .setDescription("An error occurred while processing your sale.");
+                .setDescription(error.message || "An error occurred while processing your sale.");
             await interaction.editReply({ embeds: [embed] });
         }
     },

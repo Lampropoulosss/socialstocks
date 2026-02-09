@@ -60,4 +60,22 @@ export default async function guildRoutes(fastify: FastifyInstance) {
             reply.status(500).send({ error: 'Internal Server Error' });
         }
     });
+    fastify.delete('/api/guilds/:id', async (request, reply) => {
+        const { id } = request.params as { id: string };
+        try {
+            // Delete all users associated with this guild.
+            // Cascading deletes in Prisma schema (if configured) or manual cleanup might be needed.
+            // Assuming ON DELETE CASCADE is set up for relations or this is sufficient for now.
+            // Based on schema, User deletion cascades to Stock and Portfolio.
+            const result = await prisma.user.deleteMany({
+                where: { guildId: id },
+            });
+
+            fastify.log.info(`Deleted ${result.count} users for guild ${id}`);
+            return { success: true, count: result.count };
+        } catch (err) {
+            fastify.log.error(err);
+            reply.status(500).send({ error: 'Internal Server Error' });
+        }
+    });
 }

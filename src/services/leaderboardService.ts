@@ -136,7 +136,7 @@ export class LeaderboardService {
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji(Emojis.Profile),
                 new ButtonBuilder()
-                    .setCustomId('refresh_market')
+                    .setCustomId('market_page_1')
                     .setLabel(ButtonLabels.Market)
                     .setStyle(ButtonStyle.Success)
                     .setEmoji(Emojis.Market),

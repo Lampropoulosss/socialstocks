@@ -80,6 +80,29 @@ module.exports = {
                     const response = HelpService.getHelpResponse();
                     await interaction.editReply(response);
                 }
+                else if (customId === 'confirm_optout') {
+                    const success = await ProfileService.deleteUserProfile(userId, guildId);
+                    if (success) {
+                        await interaction.editReply({
+                            content: '✅ Your data has been successfully deleted.',
+                            embeds: [],
+                            components: []
+                        });
+                    } else {
+                        await interaction.editReply({
+                            content: '❌ An error occurred while deleting your data. Please try again later.',
+                            embeds: [],
+                            components: []
+                        });
+                    }
+                }
+                else if (customId === 'cancel_optout') {
+                    await interaction.editReply({
+                        content: 'Action cancelled.',
+                        embeds: [],
+                        components: []
+                    });
+                }
             } catch (error) {
                 console.error("Button interaction error:", error);
                 try {

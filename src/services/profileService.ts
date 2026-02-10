@@ -132,7 +132,7 @@ export class ProfileService {
         const row = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder().setCustomId('refresh_profile').setLabel(ButtonLabels.Refresh).setStyle(ButtonStyle.Secondary).setEmoji(Emojis.Refresh),
-                new ButtonBuilder().setCustomId('refresh_market').setLabel(ButtonLabels.Market).setStyle(ButtonStyle.Success).setEmoji(Emojis.Market),
+                new ButtonBuilder().setCustomId('market_page_1').setLabel(ButtonLabels.Market).setStyle(ButtonStyle.Success).setEmoji(Emojis.Market),
                 new ButtonBuilder().setCustomId('refresh_leaderboard').setLabel(ButtonLabels.Leaderboard).setStyle(ButtonStyle.Secondary).setEmoji(Emojis.Leaderboard),
                 new ButtonBuilder().setCustomId('view_help').setLabel(ButtonLabels.Help).setStyle(ButtonStyle.Secondary).setEmoji(Emojis.Help)
             );
@@ -141,5 +141,24 @@ export class ProfileService {
         await redisCache.set(cacheKey, JSON.stringify(responsePayload), 'EX', 15);
 
         return responsePayload;
+    }
+
+    static async deleteUserProfile(userId: string, guildId: string): Promise<boolean> {
+        try {
+            await prisma.user.deleteMany({
+                where: {
+                    discordId: userId,
+                    guildId: guildId
+                }
+            });
+
+            const cacheKey = `view:profile:${guildId}:${userId}:${userId}`;
+            await redisCache.del(cacheKey);
+
+            return true;
+        } catch (error) {
+            console.error("Error deleting user profile:", error);
+            return false;
+        }
     }
 }

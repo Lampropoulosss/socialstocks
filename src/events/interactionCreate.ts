@@ -9,7 +9,8 @@ module.exports = {
     async execute(interaction: Interaction) {
         if (interaction.isChatInputCommand()) {
             const client = interaction.client;
-            const command = client.commands.get(interaction.commandName);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const command = (client as any).commands.get(interaction.commandName);
 
             if (!command) {
                 console.error(`No command matching ${interaction.commandName} was found.`);
@@ -23,17 +24,14 @@ module.exports = {
                     console.warn(`Interaction ${interaction.commandName} timed out before reply.`);
                     return;
                 }
-
                 console.error(error);
-
                 try {
                     if (interaction.replied || interaction.deferred) {
                         await interaction.followUp({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });
                     } else {
                         await interaction.reply({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });
                     }
-                } catch (replyError) {
-                }
+                } catch (replyError) { }
             }
             return;
         }
@@ -53,6 +51,15 @@ module.exports = {
                     await interaction.deferUpdate();
                 }
 
+                // --- PAGINATION HANDLER ---
+                if (customId.startsWith('market_page_')) {
+                    // Extract page number from "market_page_2"
+                    const page = parseInt(customId.split('_')[2]) || 1;
+                    const response = await MarketService.getMarketResponse(guildId, page);
+                    await interaction.editReply(response);
+                    return;
+                }
+
                 if (customId === 'refresh_profile') {
                     const response = await ProfileService.getProfileResponse(userId, guildId, username);
                     if (response) {
@@ -60,21 +67,16 @@ module.exports = {
                     } else {
                         await interaction.followUp({ content: 'Profile not found or not initialized yet.', flags: MessageFlags.Ephemeral });
                     }
-                } else if (customId === 'refresh_market') {
-                    const response = await MarketService.getMarketResponse(guildId);
-                    if (response) {
-                        await interaction.editReply(response);
-                    } else {
-                        await interaction.followUp({ content: 'Market data unavailable.', flags: MessageFlags.Ephemeral });
-                    }
-                } else if (customId === 'refresh_leaderboard') {
+                }
+                else if (customId === 'refresh_leaderboard') {
                     const response = await LeaderboardService.getLeaderboardResponse(guildId);
                     if (response) {
                         await interaction.editReply(response);
                     } else {
                         await interaction.editReply({ content: 'Leaderboard is currently empty.', embeds: [], components: [] });
                     }
-                } else if (customId === 'view_help') {
+                }
+                else if (customId === 'view_help') {
                     const response = HelpService.getHelpResponse();
                     await interaction.editReply(response);
                 }
@@ -83,8 +85,6 @@ module.exports = {
                 try {
                     if (interaction.deferred || interaction.replied) {
                         await interaction.followUp({ content: 'Interaction failed due to an error.', flags: MessageFlags.Ephemeral });
-                    } else {
-                        await interaction.reply({ content: 'Interaction failed.', flags: MessageFlags.Ephemeral });
                     }
                 } catch (replyError) {
                     console.error('Error sending button error message:', replyError);

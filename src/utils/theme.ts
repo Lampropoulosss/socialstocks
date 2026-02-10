@@ -23,5 +23,7 @@ export const Emojis = {
     Market: '📈',
     Leaderboard: '🏆',
     Help: '❓',
-    Support: '🛟'
+    Support: '🛟',
+    Previous: '⬅️',
+    Next: '➡️'
 };

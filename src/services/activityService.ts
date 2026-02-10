@@ -194,19 +194,14 @@ export class ActivityService {
                 let points = 0;
 
                 if (log.type === 'MESSAGE') {
-                    // NEW: min(val, 100) / 10 -> Max 10 pts per message.
-                    // Explanation: Prevents spamming long text for massive gains.
+                    // min(val, 100) / 10 -> Max 10 pts per message.
                     points = Math.min(log.value, 100) / 10;
                 }
                 else if (log.type === 'VOICE_MINUTE') {
-                    // NEW: val * 0.5
-                    // Explanation: Voice is passive. It shouldn't outweigh active chatting.
                     points = log.value * 0.5;
                 }
                 else if (log.type === 'REACTION_RECEIVED') {
-                    // NEW: 2 pts
-                    // Explanation: Reactions are too easy to farm in big servers.
-                    points = 2;
+                    points = 1;
                 }
 
                 if (user.bullhornUntil && new Date(user.bullhornUntil) > new Date()) {
@@ -231,7 +226,7 @@ export class ActivityService {
                 let baseVol = new Decimal(String(user.stock.volatility)).toNumber();
                 const priceVal = currentPrice.toNumber();
 
-                // NEW: Steeper falloff for volatility.
+                // Steeper falloff for volatility.
                 // If price > 50, volatility drops quickly.
                 if (priceVal > 50) {
                     baseVol = 0.15 / Math.log10(priceVal); // Stronger dampening
@@ -254,12 +249,10 @@ export class ActivityService {
 
                 // 3. Logarithmic Score Impact
                 // Use log10 twice or a divisor to crush massive activity spikes from 700k users.
-                // OLD: log10(score + 1)
                 const scoreLog = new Decimal(Math.log10(score + 1));
 
                 // 4. The Price Drag (Crucial for Hyperinflation)
-                // OLD: DAMPENING_FACTOR = 0.25
-                // NEW: Variable dampening based on current price.
+                // Variable dampening based on current price.
                 // If price is $10, factor is ~0.2. If price is $2000, factor is ~0.01.
                 const priceDrag = Math.max(1, priceVal / 100);
                 const DAMPENING_FACTOR = 0.2 / priceDrag;

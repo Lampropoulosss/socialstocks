@@ -19,7 +19,7 @@ module.exports = {
         const guildId = interaction.guildId!;
         const username = targetUser.username;
 
-        const response = await ProfileService.getProfileResponse(discordId, guildId, username);
+        const response = await ProfileService.getProfileResponse(discordId, guildId, username, interaction.user.id);
 
         if (!response) {
             const message = targetUser.id === interaction.user.id

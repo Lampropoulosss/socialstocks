@@ -64,4 +64,5 @@ model Portfolio {
   @@unique([ownerId, stockId])
 
   @@index([stockId, shares(sort: Desc)])
+  @@index([ownerId, shares(sort: Desc)])
 }

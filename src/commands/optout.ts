@@ -11,7 +11,7 @@ module.exports = {
 
         const embed = new EmbedBuilder()
             .setTitle('⚠️ Opt Out?')
-            .setDescription('Are you sure you want to opt out? **This action cannot be undone.**\n\nAll your stocks, balance, and portfolio will be permanently deleted.')
+            .setDescription('Are you sure you want to opt out? **This action cannot be undone.**\n\nYour account will be paused, and all your stocks, balance, and portfolio will be **reset**.')
             .setColor(Colors.Danger);
 
         const row = new ActionRowBuilder<ButtonBuilder>()

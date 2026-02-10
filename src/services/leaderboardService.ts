@@ -56,7 +56,7 @@ export class LeaderboardService {
         while (true) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const users: any[] = await prisma.user.findMany({
-                where: { updatedAt: { gte: activeSince } },
+                where: { updatedAt: { gte: activeSince }, isOptedOut: false },
                 take: BATCH_SIZE,
                 skip: cursor ? 1 : 0,
                 cursor: cursor ? { id: cursor } : undefined,
@@ -161,6 +161,7 @@ export class LeaderboardService {
             while (true) {
                 // 1. Fetch batch of User IDs
                 const users: { id: string }[] = await prisma.user.findMany({
+                    where: { isOptedOut: false },
                     take: BATCH_SIZE,
                     skip: cursor ? 1 : 0,
                     cursor: cursor ? { id: cursor } : undefined,

@@ -8,9 +8,9 @@ export class MarketService {
     static async getMarketResponse(guildId: string, page: number = 1) {
         // 1. Fetch data and count in parallel to minimize DB wait time
         const [totalStocks, stocks] = await Promise.all([
-            prisma.stock.count({ where: { user: { guildId } } }),
+            prisma.stock.count({ where: { user: { guildId, isOptedOut: false } } }),
             prisma.stock.findMany({
-                where: { user: { guildId } },
+                where: { user: { guildId, isOptedOut: false } },
                 orderBy: { currentPrice: 'desc' },
                 skip: (page - 1) * this.PAGE_SIZE,
                 take: this.PAGE_SIZE,

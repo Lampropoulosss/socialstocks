@@ -15,6 +15,8 @@ export class HelpService {
                 { name: '/shop', value: 'View items available for purchase.' },
                 { name: '/buy_item [item_name] [target]', value: 'Buy an item from the shop.' },
                 { name: '/rename_ticker [user] [new_ticker]', value: 'Rename a stock ticker (Majority Shareholder).' },
+                { name: '/optout', value: 'Pause your account and delete your data.' },
+                { name: '/optin', value: 'Resume your account activity.' },
                 { name: '/help', value: 'Show this message.' }
             )
             .setFooter({ text: 'Market based on message and voice activity!' });

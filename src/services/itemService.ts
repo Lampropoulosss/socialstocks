@@ -20,26 +20,26 @@ export const SHOP_ITEMS: ShopItem[] = [
     {
         id: ItemType.BULLHORN,
         name: 'The Bullhorn',
-        description: '2x Activity Points (20 mins)', // Reduced duration
-        price: 2500, // Increased from 150
-        durationMinutes: 20, // Reduced from 45
-        cooldownMinutes: 120 // Increased from 60
+        description: '2x Activity Points (20 mins)',
+        price: 800, // Reduced from 2500 (Accessible after ~80 messages)
+        durationMinutes: 20,
+        cooldownMinutes: 120
     },
     {
         id: ItemType.PRICE_FREEZE,
         name: 'Night Shield',
         description: 'Prevent stock price drop (8 hours)',
-        price: 5000, // Increased from 500
-        durationMinutes: 480, // Reduced from 720 (12h) -> 8h
-        cooldownMinutes: 1440 // 24h cooldown
+        price: 2000, // Reduced from 5000 (Mid-tier investment)
+        durationMinutes: 480,
+        cooldownMinutes: 1440
     },
     {
         id: ItemType.LIQUID_LUCK,
         name: 'Liquid Luck',
         description: 'Boost Volatility (30 Mins)',
-        price: 15000, // Increased from 800 (Massive nerf)
-        durationMinutes: 30, // Reduced from 60
-        cooldownMinutes: 360 // 6 hour cooldown
+        price: 7500, // Reduced from 15000 (High-tier, but attainable)
+        durationMinutes: 30,
+        cooldownMinutes: 360
     }
 ];
 

@@ -11,12 +11,8 @@ module.exports = {
         if (interaction.isChatInputCommand()) {
             if (!interaction.guildId) return;
 
-            // --- 1. OPT-OUT CHECK FOR COMMANDS ---
-            // Check opt-out status first
             const isOptedOut = await ProfileService.isUserOptedOut(interaction.user.id, interaction.guildId);
 
-            // Allow them to run 'optin' (you should create this command) or 'optout' (to see status)
-            // Block everything else
             if (isOptedOut && interaction.commandName !== 'optin') {
                 const embed = new EmbedBuilder()
                     .setColor(Colors.Danger)
@@ -40,7 +36,6 @@ module.exports = {
                 await command.execute(interaction);
             } catch (error) {
                 if (error instanceof DiscordAPIError && error.code === 10062) {
-                    console.warn(`Interaction ${interaction.commandName} timed out before reply.`);
                     return;
                 }
                 console.error(error);
@@ -66,7 +61,6 @@ module.exports = {
             }
 
             try {
-                // Check opt-out for buttons too
                 const isOptedOut = await ProfileService.isUserOptedOut(userId, guildId);
                 if (isOptedOut && customId !== 'confirm_optout' && customId !== 'cancel_optout') {
                     await interaction.reply({ content: 'You are opted out. Use /optin to restore functionality.', flags: MessageFlags.Ephemeral });
@@ -77,58 +71,82 @@ module.exports = {
                     await interaction.deferUpdate();
                 }
 
-                // --- PAGINATION HANDLER ---
                 if (customId.startsWith('market_page_')) {
-                    // Extract page number from "market_page_2"
                     const page = parseInt(customId.split('_')[2]) || 1;
                     const response = await MarketService.getMarketResponse(guildId, page);
                     await interaction.editReply(response);
                     return;
                 }
 
-                if (customId === 'refresh_profile') {
-                    const response = await ProfileService.getProfileResponse(userId, guildId, username);
+                if (customId.startsWith('leaderboard_page_')) {
+                    const page = parseInt(customId.split('_')[2]) || 1;
+                    const response = await LeaderboardService.getLeaderboardResponse(guildId, page);
                     if (response) {
                         await interaction.editReply(response);
                     } else {
-                        await interaction.followUp({ content: 'Profile not found or not initialized yet.', flags: MessageFlags.Ephemeral });
+                        await interaction.editReply({ content: 'Leaderboard page unavailable.', embeds: [], components: [] });
                     }
+                    return;
                 }
-                else if (customId === 'refresh_leaderboard') {
-                    const response = await LeaderboardService.getLeaderboardResponse(guildId);
+
+                if (customId.startsWith('profile_page_')) {
+                    const parts = customId.split('_');
+                    const targetUserId = parts[2];
+                    const page = parseInt(parts[3]) || 1;
+
+                    // If viewing own profile, use current username, otherwise fallback to generic
+                    const targetUsername = targetUserId === userId ? username : 'User';
+
+                    const response = await ProfileService.getProfileResponse(targetUserId, guildId, targetUsername, userId, page);
                     if (response) {
                         await interaction.editReply(response);
                     } else {
-                        await interaction.editReply({ content: 'Leaderboard is currently empty.', embeds: [], components: [] });
+                        await interaction.editReply({ content: 'Profile not found.', components: [] });
                     }
+                    return;
                 }
-                else if (customId === 'view_help') {
-                    const response = HelpService.getHelpResponse();
-                    await interaction.editReply(response);
-                }
-                else if (customId === 'confirm_optout') {
-                    // CHANGED: Instead of deleteUserProfile, we use setOptOutStatus
-                    const success = await ProfileService.setOptOutStatus(userId, guildId, true);
-                    if (success) {
-                        await interaction.editReply({
-                            content: '✅ You have successfully **opted out**. The bot will now ignore your messages and voice activity. You can use `/optin` to reactivate your account.',
-                            embeds: [],
-                            components: []
-                        });
-                    } else {
-                        await interaction.editReply({
-                            content: '❌ An error occurred. Please try again later.',
-                            embeds: [],
-                            components: []
-                        });
+
+                switch (customId) {
+                    case 'refresh_profile': {
+                        const response = await ProfileService.getProfileResponse(userId, guildId, username, userId, 1);
+                        if (response) {
+                            await interaction.editReply(response);
+                        } else {
+                            await interaction.followUp({ content: 'Profile not found or not initialized yet.', flags: MessageFlags.Ephemeral });
+                        }
+                        break;
                     }
-                }
-                else if (customId === 'cancel_optout') {
-                    await interaction.editReply({
-                        content: 'Opt-out cancelled.',
-                        embeds: [],
-                        components: []
-                    });
+                    case 'refresh_leaderboard': {
+                        const response = await LeaderboardService.getLeaderboardResponse(guildId, 1);
+                        if (response) {
+                            await interaction.editReply(response);
+                        } else {
+                            await interaction.editReply({ content: 'Leaderboard is currently empty.', embeds: [], components: [] });
+                        }
+                        break;
+                    }
+                    case 'view_help': {
+                        const response = HelpService.getHelpResponse();
+                        await interaction.editReply(response);
+                        break;
+                    }
+                    case 'confirm_optout': {
+                        const success = await ProfileService.setOptOutStatus(userId, guildId, true);
+                        if (success) {
+                            await interaction.editReply({
+                                content: '✅ You have successfully **opted out**. The bot will now ignore your messages and voice activity. Use `/optin` to reactivate.',
+                                embeds: [],
+                                components: []
+                            });
+                        } else {
+                            await interaction.editReply({ content: '❌ An error occurred. Please try again later.', embeds: [], components: [] });
+                        }
+                        break;
+                    }
+                    case 'cancel_optout': {
+                        await interaction.editReply({ content: 'Opt-out cancelled.', embeds: [], components: [] });
+                        break;
+                    }
                 }
             } catch (error) {
                 console.error("Button interaction error:", error);

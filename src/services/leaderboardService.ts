@@ -2,54 +2,16 @@ import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'disc
 import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
 import { redisCache } from '../redis';
-import Decimal from 'decimal.js';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
 
 export class LeaderboardService {
     private static LEADERBOARD_KEY_PREFIX = 'leaderboard:networth';
-
-    static async updateUser(userId: string, guildId: string) {
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: {
-                id: true,
-                username: true,
-                balance: true,
-                portfolio: {
-                    select: {
-                        shares: true,
-                        stock: { select: { currentPrice: true } }
-                    }
-                }
-            }
-        });
-
-        if (!user) return;
-
-        let stockValue = new Decimal(0);
-        for (const item of user.portfolio) {
-            stockValue = stockValue.plus(new Decimal(item.shares).times(new Decimal(String(item.stock.currentPrice))));
-        }
-
-        const netWorth = new Decimal(String(user.balance)).plus(stockValue);
-
-        await prisma.user.update({
-            where: { id: userId },
-            data: { netWorth: netWorth.toString() }
-        });
-
-        const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
-        await redisCache.zadd(key, netWorth.toNumber(), user.id);
-
-        await redisCache.set(`user:${user.id}:username`, user.username, 'EX', 86400);
-    }
+    private static PAGE_SIZE = 10;
 
     static async syncLeaderboard() {
         console.log('Starting Optimized Leaderboard Sync...');
-
         const BATCH_SIZE = 1000;
         let cursor: string | undefined = undefined;
-
         const ONE_HOUR = 60 * 60 * 1000;
         const activeSince = new Date(Date.now() - ONE_HOUR);
 
@@ -79,14 +41,21 @@ export class LeaderboardService {
             if (users.length < BATCH_SIZE) break;
             cursor = users[users.length - 1].id;
         }
-
         console.log('Leaderboard Sync Complete.');
     }
 
-    static async getLeaderboard(guildId: string, top: number = 10) {
+    // UPDATED: Accepts offset/limit implicitly via page
+    static async getLeaderboard(guildId: string, page: number = 1) {
         const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
 
-        const result = await redisCache.zrevrange(key, 0, top - 1, 'WITHSCORES');
+        // Redis indices are zero-based and inclusive
+        const start = (page - 1) * this.PAGE_SIZE;
+        const end = start + this.PAGE_SIZE - 1;
+
+        const [totalCount, result] = await Promise.all([
+            redisCache.zcard(key),
+            redisCache.zrevrange(key, start, end, 'WITHSCORES')
+        ]);
 
         const leaderboard = [];
         for (let i = 0; i < result.length; i += 2) {
@@ -101,29 +70,53 @@ export class LeaderboardService {
             }
 
             leaderboard.push({
-                rank: (i / 2) + 1,
+                rank: start + (i / 2) + 1,
                 username,
                 netWorth
             });
         }
 
-        return leaderboard;
+        return { leaderboard, totalCount };
     }
 
-    static async getLeaderboardResponse(guildId: string) {
-        const topUsers = await this.getLeaderboard(guildId, 10);
+    // UPDATED: Handles pagination buttons
+    static async getLeaderboardResponse(guildId: string, page: number = 1) {
+        const { leaderboard, totalCount } = await this.getLeaderboard(guildId, page);
 
-        if (topUsers.length === 0) {
+        const totalPages = Math.ceil(totalCount / this.PAGE_SIZE) || 1;
+        const currentPage = Math.max(1, Math.min(page, totalPages));
+
+        if (leaderboard.length === 0 && currentPage === 1) {
             return null;
         }
 
         const embed = new EmbedBuilder()
             .setTitle('🏆 SocialStocks Leaderboard')
             .setColor(Colors.Gold)
-            .setDescription(topUsers.map(u => `**#${u.rank}** ${u.username} — $${u.netWorth.toFixed(2)}`).join('\n'))
-            .setFooter({ text: 'Updates every 5 minutes' });
+            .setDescription(leaderboard.map(u => `**#${u.rank}** ${u.username} — $${Number(u.netWorth).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join('\n'))
+            .setFooter({ text: `Page ${currentPage} of ${totalPages} • Updates every 5 minutes` });
 
-        const row = new ActionRowBuilder<ButtonBuilder>()
+        // Navigation Row
+        const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`leaderboard_page_${currentPage - 1}`)
+                .setEmoji(Emojis.Previous || '⬅️')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage === 1),
+            new ButtonBuilder()
+                .setCustomId('leaderboard_stats')
+                .setLabel(`${currentPage}/${totalPages}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+            new ButtonBuilder()
+                .setCustomId(`leaderboard_page_${currentPage + 1}`)
+                .setEmoji(Emojis.Next || '➡️')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage >= totalPages)
+        );
+
+        // Action Row
+        const actionRow = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('refresh_leaderboard')
@@ -147,9 +140,10 @@ export class LeaderboardService {
                     .setEmoji(Emojis.Help)
             );
 
-        return { embeds: [embed], components: [row] };
+        return { embeds: [embed], components: [navRow, actionRow] };
     }
 
+    // ... [Keep recalculateAllNetWorths as is] ...
     static async recalculateAllNetWorths() {
         console.log("🔄 Starting Batched Net Worth Sync...");
         const start = Date.now();
@@ -159,7 +153,6 @@ export class LeaderboardService {
 
         try {
             while (true) {
-                // 1. Fetch batch of User IDs
                 const users: { id: string }[] = await prisma.user.findMany({
                     where: { isOptedOut: false },
                     take: BATCH_SIZE,
@@ -170,10 +163,8 @@ export class LeaderboardService {
                 });
 
                 if (users.length === 0) break;
-
                 const userIds = users.map(u => u.id);
 
-                // 2. Run Update for this batch only
                 const count = await prisma.$executeRaw`
                     UPDATE "User" u
                     SET "netWorth" = (u.balance::decimal + (
@@ -187,14 +178,10 @@ export class LeaderboardService {
                 `;
 
                 processedCount += Number(count);
-
                 cursor = users[users.length - 1].id;
-
                 await new Promise(r => setTimeout(r, 100));
-
                 if (users.length < BATCH_SIZE) break;
             }
-
             console.log(`✅ Net Worth Sync Complete. Updated ${processedCount} users in ${Date.now() - start}ms.`);
         } catch (error) {
             console.error("❌ Net Worth Sync Failed:", error);

@@ -12,24 +12,25 @@ const CONSTANTS = {
     DEFAULT_TOTAL_SHARES: 2500,
     CACHE_TTL_PROFILE: 15,
     CACHE_TTL_OPTOUT: 86400,
+    PAGE_SIZE: 10
 };
 
 export class ProfileService {
-    static async getProfileResponse(userId: string, guildId: string, username: string, viewerId?: string) {
+
+    static async getProfileResponse(userId: string, guildId: string, username: string, viewerId?: string, page: number = 1) {
         const requestingUser = viewerId || userId;
-        const cacheKey = `view:profile:${guildId}:${userId}:${requestingUser}`;
+        const cacheKey = `view:profile:${guildId}:${userId}:${requestingUser}:${page}`;
 
         // 1. Cache Check
         const cachedData = await redisCache.get(cacheKey);
         if (cachedData) return JSON.parse(cachedData);
 
-        // 2. The "Super Query"
+        // 2. The "Super Query" with Pagination
         const user = await prisma.user.findUnique({
             where: { discordId_guildId: { discordId: userId, guildId } },
             include: {
                 stock: {
                     include: {
-                        // A. Get Viewer's Holding
                         portfolios: viewerId && viewerId !== userId ? {
                             where: { owner: { discordId: viewerId, guildId } },
                             select: { shares: true },
@@ -38,7 +39,8 @@ export class ProfileService {
                     }
                 },
                 portfolio: {
-                    take: 10,
+                    skip: (page - 1) * CONSTANTS.PAGE_SIZE,
+                    take: CONSTANTS.PAGE_SIZE,
                     orderBy: { shares: 'desc' },
                     include: { stock: true }
                 },
@@ -50,9 +52,8 @@ export class ProfileService {
 
         if (!user) return null;
 
-        // 3. Majority Shareholder - Find the portfolio with the most shares for this stock, excluding the owner.
+        // Majority Shareholder Logic
         let majorityShareholderUsername: string | null = null;
-
         if (user.stock) {
             const topPortfolio = await prisma.portfolio.findFirst({
                 where: {
@@ -61,16 +62,9 @@ export class ProfileService {
                     shares: { gt: 0 }
                 },
                 orderBy: { shares: 'desc' },
-                select: {
-                    owner: {
-                        select: { username: true }
-                    }
-                }
+                select: { owner: { select: { username: true } } }
             });
-
-            if (topPortfolio) {
-                majorityShareholderUsername = topPortfolio.owner.username;
-            }
+            if (topPortfolio) majorityShareholderUsername = topPortfolio.owner.username;
         }
 
         const balance = new Decimal(String(user.balance));
@@ -79,32 +73,28 @@ export class ProfileService {
         const totalShares = new Decimal(user.stock?.totalShares ?? CONSTANTS.DEFAULT_TOTAL_SHARES);
         const marketCap = stockPrice.times(totalShares);
 
+        const totalPortfolioItems = user._count.portfolio;
+        const totalPages = Math.ceil(totalPortfolioItems / CONSTANTS.PAGE_SIZE) || 1;
+        const currentPage = Math.max(1, Math.min(page, totalPages));
+
         const embed = new EmbedBuilder()
-            .setTitle(`${username}'s Profile`)
-            .setColor(Colors.Primary);
+            .setTitle(`${user.username}'s Profile`)
+            .setColor(Colors.Primary)
+            .setFooter({ text: `Page ${currentPage} of ${totalPages} • Total Holdings: ${totalPortfolioItems}` });
 
         if (user.stock) {
             if (majorityShareholderUsername) {
                 embed.setDescription(`🔒 **Property of ${majorityShareholderUsername}**`);
             }
-
             const outstanding = user.stock.sharesOutstanding;
             const maxShares = user.stock.totalShares;
             const supplyPct = ((outstanding / maxShares) * 100).toFixed(1);
 
-            embed.addFields({
-                name: 'Supply',
-                value: `${outstanding}/${maxShares} (${supplyPct}%)`,
-                inline: true
-            });
+            embed.addFields({ name: 'Supply', value: `${outstanding}/${maxShares} (${supplyPct}%)`, inline: true });
 
             const viewerHoldingEntry = user.stock.portfolios?.[0];
             if (viewerHoldingEntry) {
-                embed.addFields({
-                    name: 'Your Position',
-                    value: `${viewerHoldingEntry.shares} shares`,
-                    inline: true
-                });
+                embed.addFields({ name: 'Your Position', value: `${viewerHoldingEntry.shares} shares`, inline: true });
             }
         }
 
@@ -115,7 +105,6 @@ export class ProfileService {
             { name: 'Market Cap', value: `$${marketCap.toFixed(2)}`, inline: true },
         );
 
-        // Portfolio Display
         if (user.portfolio.length > 0) {
             const portfolioDesc = user.portfolio.map(p => {
                 const currentPrice = new Decimal(String(p.stock.currentPrice));
@@ -130,14 +119,30 @@ export class ProfileService {
                 return `**${p.stock.symbol}**: ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
             }).join('\n');
 
-            const remaining = user._count.portfolio - user.portfolio.length;
-            const extraText = remaining > 0 ? `\n...and ${remaining} more.` : '';
-            embed.addFields({ name: 'Your Portfolio', value: (portfolioDesc + extraText).substring(0, 1024) });
+            embed.addFields({ name: 'Your Portfolio', value: portfolioDesc.substring(0, 1024) });
         } else {
-            embed.addFields({ name: 'Your Portfolio', value: "You don't own any stocks yet. Use `/market` to find some!" });
+            embed.addFields({ name: 'Your Portfolio', value: "No stocks found on this page." });
         }
 
-        const row = new ActionRowBuilder<ButtonBuilder>()
+        const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`profile_page_${userId}_${currentPage - 1}`)
+                .setEmoji(Emojis.Previous || '⬅️')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage === 1),
+            new ButtonBuilder()
+                .setCustomId('profile_stats')
+                .setLabel(`${currentPage}/${totalPages}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+            new ButtonBuilder()
+                .setCustomId(`profile_page_${userId}_${currentPage + 1}`)
+                .setEmoji(Emojis.Next || '➡️')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage >= totalPages)
+        );
+
+        const actionRow = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder().setCustomId('refresh_profile').setLabel(ButtonLabels.Refresh).setStyle(ButtonStyle.Secondary).setEmoji(Emojis.Refresh),
                 new ButtonBuilder().setCustomId('market_page_1').setLabel(ButtonLabels.Market).setStyle(ButtonStyle.Success).setEmoji(Emojis.Market),
@@ -145,7 +150,7 @@ export class ProfileService {
                 new ButtonBuilder().setCustomId('view_help').setLabel(ButtonLabels.Help).setStyle(ButtonStyle.Secondary).setEmoji(Emojis.Help)
             );
 
-        const responsePayload = { embeds: [embed], components: [row] };
+        const responsePayload = { embeds: [embed], components: [navRow, actionRow] };
         await redisCache.set(cacheKey, JSON.stringify(responsePayload), 'EX', CONSTANTS.CACHE_TTL_PROFILE);
 
         return responsePayload;
@@ -171,7 +176,6 @@ export class ProfileService {
 
         try {
             if (isOptedOut) {
-                // === OPT-OUT SEQUENCE ===
                 await prisma.$transaction(async (tx) => {
                     const user = await tx.user.findUnique({
                         where: { discordId_guildId: { discordId: userId, guildId } },
@@ -180,13 +184,11 @@ export class ProfileService {
 
                     if (!user) return;
 
-                    // 1. Fetch Portfolios
                     const userPortfolios = await tx.portfolio.findMany({
                         where: { ownerId: user.id },
                         select: { stockId: true, shares: true }
                     });
 
-                    // 2. OPTIMIZATION: Single Raw Query Update
                     if (userPortfolios.length > 0) {
                         const valuesList = userPortfolios
                             .map(p => `('${p.stockId}', ${p.shares}::int)`)
@@ -200,10 +202,8 @@ export class ProfileService {
                         `);
                     }
 
-                    // 3. Delete Portfolios (Bulk)
                     await tx.portfolio.deleteMany({ where: { ownerId: user.id } });
 
-                    // 4. Handle "User's Own Stock"
                     if (user.stock) {
                         await tx.portfolio.deleteMany({ where: { stockId: user.stock.id } });
                         await tx.stock.update({
@@ -218,7 +218,6 @@ export class ProfileService {
                         });
                     }
 
-                    // 5. Update User Status
                     await tx.user.update({
                         where: { id: user.id },
                         data: {
@@ -233,7 +232,6 @@ export class ProfileService {
                     });
                 });
             } else {
-                // === OPT-IN SEQUENCE ===
                 await prisma.user.update({
                     where: { discordId_guildId: { discordId: userId, guildId } },
                     data: { isOptedOut: false }

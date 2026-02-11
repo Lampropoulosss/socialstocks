@@ -106,6 +106,7 @@ export class ActivityService {
                     guildId: true,
                     bullhornUntil: true,
                     liquidLuckUntil: true,
+                    rumorMillUntil: true,
                     balance: true,
                     stock: { select: { id: true, currentPrice: true, volatility: true } },
                     portfolio: { select: { shares: true, stock: { select: { id: true, currentPrice: true } } } }
@@ -206,6 +207,11 @@ export class ActivityService {
 
                 if (user.bullhornUntil && new Date(user.bullhornUntil) > new Date()) {
                     points *= 2;
+                }
+
+                // NEW: Rumor Mill Logic (The Nerf)
+                if (user.rumorMillUntil && new Date(user.rumorMillUntil) > new Date()) {
+                    points *= 0.8; // Reduces points by 20%
                 }
 
                 userScoreMap.set(key, (userScoreMap.get(key) || 0) + points);

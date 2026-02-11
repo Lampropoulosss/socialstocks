@@ -4,6 +4,7 @@ import prisma from '../prisma';
 export enum ItemType {
     BULLHORN = 'BULLHORN',
     PRICE_FREEZE = 'PRICE_FREEZE',
+    RUMOR_MILL = 'RUMOR_MILL',
     LIQUID_LUCK = 'LIQUID_LUCK'
 }
 
@@ -32,6 +33,14 @@ export const SHOP_ITEMS: ShopItem[] = [
         price: 2000, // Reduced from 5000 (Mid-tier investment)
         durationMinutes: 480,
         cooldownMinutes: 1440
+    },
+    {
+        id: ItemType.RUMOR_MILL,
+        name: 'Rumor Mill',
+        description: 'Drop stock price by 5% and reduce growth by 20% (1 hour)',
+        price: 4500,
+        durationMinutes: 60,
+        cooldownMinutes: 240
     },
     {
         id: ItemType.LIQUID_LUCK,
@@ -80,6 +89,14 @@ export class ItemService {
         } else if (itemId === ItemType.LIQUID_LUCK) {
             if (target.liquidLuckUntil && target.liquidLuckUntil > now) {
                 throw new Error("This effect is already active on the target.");
+            }
+        } else if (itemId === ItemType.RUMOR_MILL) {
+            if (target.rumorMillUntil && target.rumorMillUntil > now) {
+                throw new Error("This user is already suffering from rumors.");
+            }
+            // Cannot use on yourself
+            if (buyer.id === target.id) {
+                throw new Error("You cannot start rumors about yourself.");
             }
         }
 
@@ -133,6 +150,24 @@ export class ItemService {
                 await tx.user.update({
                     where: { id: target.id },
                     data: { liquidLuckUntil: activeUntil }
+                });
+            } else if (itemId === ItemType.RUMOR_MILL) {
+                // 1. Apply the Debuff Timer
+                await tx.user.update({
+                    where: { id: target.id },
+                    data: { rumorMillUntil: activeUntil }
+                });
+
+                // 2. Instant 5% Price Drop
+                // Note: We use executeRaw for decimal multiplication safety or JS calculation
+                const currentPrice = target.stock!.currentPrice.toNumber();
+                const rawNewPrice = Math.max(1.00, currentPrice * 0.95);
+                // Convert to fixed string then back to number to strip extra decimals
+                const newPrice = parseFloat(rawNewPrice.toFixed(2));
+
+                await tx.stock.update({
+                    where: { id: target.stock!.id },
+                    data: { currentPrice: newPrice }
                 });
             }
         });

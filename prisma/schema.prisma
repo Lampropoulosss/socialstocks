@@ -18,6 +18,7 @@ model User {
   jailedUntil DateTime?
   bullhornUntil DateTime?
   liquidLuckUntil DateTime?
+  rumorMillUntil  DateTime?
   netWorth    Decimal  @default(0.00) @db.Decimal(15, 2)
   lastActiveAt DateTime @default(now())
   isOptedOut  Boolean  @default(false)

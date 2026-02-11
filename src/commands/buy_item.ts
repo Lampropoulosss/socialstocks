@@ -13,6 +13,7 @@ module.exports = {
                 .addChoices(
                     { name: 'The Bullhorn', value: ItemType.BULLHORN },
                     { name: 'Night Shield', value: ItemType.PRICE_FREEZE },
+                    { name: 'Rumor Mill', value: ItemType.RUMOR_MILL },
                     { name: 'Liquid Luck', value: ItemType.LIQUID_LUCK }
                 ))
         .addUserOption(option =>

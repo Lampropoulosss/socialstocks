@@ -155,7 +155,7 @@ export class ActivityService {
                                 symbol: u.stockSymbol,
                                 currentPrice: 10.00,
                                 volatility: 0.1,
-                                totalShares: 1000
+                                totalShares: 2500
                             }))
                         })
                     ]);

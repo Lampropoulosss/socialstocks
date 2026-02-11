@@ -42,9 +42,9 @@ model Stock {
   updatedAt   DateTime @updatedAt
   frozenUntil DateTime?
 
-  totalShares       Int      @default(1000) // The Maximum Supply
+  totalShares       Int      @default(2500) // The Maximum Supply
   sharesOutstanding Int      @default(0)    // How many are currently owned
-  maxHoldingPerUser Int      @default(200)  // Max shares one investor can hold (e.g., 20%)
+  maxHoldingPerUser Int      @default(500)  // Max shares one investor can hold (e.g., 20%)
 
   portfolios  Portfolio[]
 

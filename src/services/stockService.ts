@@ -41,8 +41,13 @@ export class StockService {
                 const count = await prisma.$executeRaw`
                     UPDATE "Stock"
                     SET "currentPrice" = CASE 
-                            WHEN "currentPrice" > 100.00 THEN GREATEST("currentPrice" * 0.90, 100.00)
-                            WHEN "currentPrice" > 20.00 THEN GREATEST("currentPrice" * 0.95, 20.00)
+                            -- High Roller (> $100): 5% Decay
+                            WHEN "currentPrice" > 100.00 THEN GREATEST("currentPrice" * 0.95, 100.00)
+                            
+                            -- Mid Tier (> $20): 2.5% Decay
+                            WHEN "currentPrice" > 20.00 THEN GREATEST("currentPrice" * 0.975, 20.00)
+                            
+                            -- Low Tier (<= $20): 1% Decay (unchanged)
                             ELSE GREATEST("currentPrice" * 0.99, 10.00)
                         END,
                         "updatedAt" = NOW()

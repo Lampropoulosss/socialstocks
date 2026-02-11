@@ -21,8 +21,8 @@ module.exports = {
             option.setName('max_price')
                 .setDescription('Maximum price per share you are willing to pay')
                 .setRequired(false)),
+
     async execute(interaction: ChatInputCommandInteraction) {
-        // 1. Initial Setup
         await interaction.deferReply();
         const targetUser = interaction.options.getUser('user')!;
         const amount = interaction.options.getInteger('amount')!;
@@ -30,7 +30,7 @@ module.exports = {
         const buyerId = interaction.user.id;
         const guildId = interaction.guildId!;
 
-        // 2. Fast Validations
+        // 1. Basic Identity Validations
         if (targetUser.id === buyerId) return errorReply(interaction, "🚫 You cannot buy stock in yourself.");
         if (targetUser.bot) return errorReply(interaction, "🚫 You cannot buy stock in bots.");
 
@@ -38,13 +38,17 @@ module.exports = {
         if (isTargetOptedOut) return errorReply(interaction, `🚫 **${targetUser.username}** has opted out.`);
 
         try {
-            // 3. Pre-flight Check (Read-Only, Fast)
-            // We fetch data to calculate costs before entering the transaction.
-            const [buyer, target] = await Promise.all([
+            const [buyer, target, existingPortfolio] = await Promise.all([
                 prisma.user.findUnique({ where: { discordId_guildId: { discordId: buyerId, guildId } } }),
                 prisma.user.findUnique({
                     where: { discordId_guildId: { discordId: targetUser.id, guildId } },
                     include: { stock: true }
+                }),
+                prisma.portfolio.findFirst({
+                    where: {
+                        owner: { discordId: buyerId, guildId },
+                        stock: { userId: targetUser.id }
+                    }
                 })
             ]);
 
@@ -55,22 +59,24 @@ module.exports = {
             const currentPrice = new Decimal(String(stock.currentPrice));
             const cost = currentPrice.times(amount);
 
-            // Check Price Cap (Client side check is fine for UX, DB enforces truth)
+            const currentShares = existingPortfolio?.shares || 0;
+            if (currentShares + amount > stock.maxHoldingPerUser) {
+                return errorReply(interaction, `🚫 **Limit Reached:** You own ${currentShares} shares. Buying ${amount} more would exceed the limit of ${stock.maxHoldingPerUser}.`);
+            }
+
+            // Price Cap Validation
             if (maxPriceInput && currentPrice.gt(maxPriceInput)) {
                 return errorReply(interaction, `Price spike! Current: $${currentPrice.toFixed(2)} > Max: $${maxPriceInput}`);
             }
 
-            // 4. The "Atomic Guard" Transaction
-            // This is the fastest way to handle money. No locks.
+            // 2. The "Atomic Guard" Transaction
             const result = await prisma.$transaction(async (tx) => {
 
                 // STEP A: Deduct Balance (Atomic Check)
-                // We use updateMany because it allows a "where" clause on non-unique fields (balance).
-                // "Decrement balance by Cost ONLY IF balance >= Cost"
                 const deductRes = await tx.user.updateMany({
                     where: {
                         id: buyer.id,
-                        balance: { gte: cost.toFixed(2) } // The Guard Clause
+                        balance: { gte: cost.toFixed(2) }
                     },
                     data: {
                         balance: { decrement: cost.toFixed(2) }
@@ -82,11 +88,10 @@ module.exports = {
                 }
 
                 // STEP B: Secure Shares (Atomic Check)
-                // "Increment sharesOutstanding ONLY IF new total <= totalShares"
                 const stockRes = await tx.stock.updateMany({
                     where: {
                         id: stock.id,
-                        sharesOutstanding: { lte: stock.totalShares - amount } // The Guard Clause
+                        sharesOutstanding: { lte: stock.totalShares - amount }
                     },
                     data: {
                         sharesOutstanding: { increment: amount }
@@ -94,27 +99,21 @@ module.exports = {
                 });
 
                 if (stockRes.count === 0) {
-                    // Refund the user if stock fails!
-                    await tx.user.update({
-                        where: { id: buyer.id },
-                        data: { balance: { increment: cost.toFixed(2) } }
-                    });
+                    await tx.user.update({ where: { id: buyer.id }, data: { balance: { increment: cost.toFixed(2) } } });
                     throw new Error(`Sold out! Not enough shares remaining.`);
                 }
 
-                // STEP C: Update Portfolio
-                // Since we passed the guards, we are safe to update the portfolio.
                 const portfolio = await tx.portfolio.findUnique({
                     where: { ownerId_stockId: { ownerId: buyer.id, stockId: stock.id } }
                 });
 
-                if (portfolio) {
-                    // Check holding cap
-                    if (portfolio.shares + amount > stock.maxHoldingPerUser) {
-                        // Rollback everything manually (throw error triggers auto-rollback of tx)
-                        throw new Error(`Holding limit reached! Max: ${stock.maxHoldingPerUser}`);
-                    }
+                // RE-CHECK INSIDE TX: Prevent Race Conditions
+                const txCurrentShares = portfolio?.shares || 0;
+                if (txCurrentShares + amount > stock.maxHoldingPerUser) {
+                    throw new Error(`Holding limit reached! Max: ${stock.maxHoldingPerUser}`);
+                }
 
+                if (portfolio) {
                     const oldTotalCost = new Decimal(String(portfolio.averageBuyPrice)).times(portfolio.shares);
                     const newAverage = oldTotalCost.plus(cost).div(portfolio.shares + amount);
 
@@ -139,7 +138,6 @@ module.exports = {
                 return { symbol: stock.symbol, shares: amount, cost, price: currentPrice };
             });
 
-            // 5. Success Response
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
                 .setTitle("✅ Trade Executed")
@@ -157,7 +155,6 @@ module.exports = {
     },
 };
 
-// Helper for clean error replies
 async function errorReply(interaction: ChatInputCommandInteraction, msg: string) {
     const embed = new EmbedBuilder().setColor(Colors.Danger).setDescription(msg);
     if (interaction.deferred) await interaction.editReply({ embeds: [embed] });

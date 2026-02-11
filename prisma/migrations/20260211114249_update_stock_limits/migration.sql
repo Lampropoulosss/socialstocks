@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Stock" ALTER COLUMN "totalShares" SET DEFAULT 2500,
+ALTER COLUMN "maxHoldingPerUser" SET DEFAULT 500;

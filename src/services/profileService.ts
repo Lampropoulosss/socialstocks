@@ -177,6 +177,7 @@ export class ProfileService {
         try {
             if (isOptedOut) {
                 await prisma.$transaction(async (tx) => {
+                    // 1. Fetch User & Stock
                     const user = await tx.user.findUnique({
                         where: { discordId_guildId: { discordId: userId, guildId } },
                         include: { stock: true }
@@ -184,28 +185,53 @@ export class ProfileService {
 
                     if (!user) return;
 
+                    // 2. LIQUIDATE INVESTORS (Bulk Refund)
+                    if (user.stock) {
+                        await tx.$executeRaw`
+                            UPDATE "User" u
+                            SET balance = balance + (p.shares * ${user.stock.currentPrice}::numeric), 
+                                "updatedAt" = NOW()
+                            FROM "Portfolio" p
+                            WHERE p."ownerId" = u.id
+                            AND p."stockId" = ${user.stock.id}
+                            AND p."ownerId" != ${user.id}
+                            AND p.shares > 0
+                        `;
+                    }
+
+                    // 3. CORRECT EXTERNAL SUPPLIES (What the user owns)
+                    // The user owns stocks in OTHER companies. We must decrement sharesOutstanding
                     const userPortfolios = await tx.portfolio.findMany({
-                        where: { ownerId: user.id },
+                        where: { ownerId: user.id, shares: { gt: 0 } },
                         select: { stockId: true, shares: true }
                     });
 
                     if (userPortfolios.length > 0) {
-                        const valuesList = userPortfolios
-                            .map(p => `('${p.stockId}', ${p.shares}::int)`)
+                        const values = userPortfolios
+                            .map(p => `('${p.stockId}', ${p.shares})`)
                             .join(', ');
 
                         await tx.$executeRawUnsafe(`
-                            UPDATE "Stock" 
-                            SET "sharesOutstanding" = "Stock"."sharesOutstanding" - v.shares
-                            FROM (VALUES ${valuesList}) AS v(id, shares)
-                            WHERE "Stock".id = v.id::text;
+                            UPDATE "Stock" as s
+                            SET "sharesOutstanding" = s."sharesOutstanding" - v.shares
+                            FROM (VALUES ${values}) as v(id, shares)
+                            WHERE s.id = v.id::text
                         `);
                     }
 
-                    await tx.portfolio.deleteMany({ where: { ownerId: user.id } });
+                    // 4. PURGE PORTFOLIOS
+                    // Delete what the user owns AND who owns the user
+                    await tx.portfolio.deleteMany({
+                        where: {
+                            OR: [
+                                { ownerId: user.id },      // Investments held BY user
+                                { stockId: user.stock?.id } // Investments held IN user
+                            ]
+                        }
+                    });
 
+                    // 5. RESET STOCK (If exists)
                     if (user.stock) {
-                        await tx.portfolio.deleteMany({ where: { stockId: user.stock.id } });
                         await tx.stock.update({
                             where: { id: user.stock.id },
                             data: {
@@ -213,11 +239,13 @@ export class ProfileService {
                                 volatility: CONSTANTS.DEFAULT_VOLATILITY,
                                 sharesOutstanding: 0,
                                 frozenUntil: null,
-                                totalShares: CONSTANTS.DEFAULT_TOTAL_SHARES
+                                totalShares: CONSTANTS.DEFAULT_TOTAL_SHARES,
+                                updatedAt: new Date()
                             }
                         });
                     }
 
+                    // 6. RESET USER
                     await tx.user.update({
                         where: { id: user.id },
                         data: {
@@ -226,19 +254,35 @@ export class ProfileService {
                             isOptedOut: true,
                             bullhornUntil: null,
                             liquidLuckUntil: null,
+                            rumorMillUntil: null,
                             jailedUntil: null,
-                            lastActiveAt: new Date()
+                            lastActiveAt: new Date(),
+                            updatedAt: new Date()
                         }
                     });
                 });
             } else {
+                // OPTING IN
                 await prisma.user.update({
                     where: { discordId_guildId: { discordId: userId, guildId } },
                     data: { isOptedOut: false }
                 });
             }
 
+            // Update Cache
             await redisCache.set(cacheKey, isOptedOut ? '1' : '0', 'EX', CONSTANTS.CACHE_TTL_OPTOUT);
+
+            // If opting out, remove from leaderboard cache immediately
+            if (isOptedOut) {
+                const user = await prisma.user.findUnique({
+                    where: { discordId_guildId: { discordId: userId, guildId } },
+                    select: { id: true }
+                });
+                if (user) {
+                    await redisCache.zrem(`leaderboard:networth:${guildId}`, user.id);
+                }
+            }
+
             return true;
         } catch (error) {
             console.error(`Error setting opt-out status for ${userId}:`, error);

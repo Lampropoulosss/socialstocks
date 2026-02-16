@@ -54,8 +54,27 @@ module.exports = {
                     throw new Error(`🚫 You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
                 }
 
+                const now = Date.now();
+                // Handle legacy portfolios that might have null lastBuyAt (fallback to updatedAt or now)
+                const lastBuyTime = portfolio.lastBuyAt ? portfolio.lastBuyAt.getTime() : portfolio.updatedAt.getTime();
+                const hoursHeld = (now - lastBuyTime) / (1000 * 60 * 60);
+
+                let taxRate = 0.08; // Base Rate (> 4 hours)
+                let taxLabel = '8% (Long Term)';
+
+                if (hoursHeld <= 1.0) {
+                    taxRate = 0.15;
+                    taxLabel = '15% (Flash Sale)';
+                } else if (hoursHeld <= 2.0) {
+                    taxRate = 0.125;
+                    taxLabel = '12.5% (Short Term)';
+                } else if (hoursHeld <= 4.0) {
+                    taxRate = 0.10;
+                    taxLabel = '10% (Medium Term)';
+                }
+
                 // Calculations
-                const TAX_RATE = new Decimal(0.10);
+                const TAX_RATE = new Decimal(taxRate);
                 const currentPrice = new Decimal(String(stock.currentPrice));
                 const grossRevenue = currentPrice.times(amount);
                 const tax = grossRevenue.times(TAX_RATE).toDecimalPlaces(2);
@@ -96,18 +115,33 @@ module.exports = {
                     });
                 }
 
-                return { symbol: stock.symbol, netRevenue, tax, profit, oldPrice: currentPrice, newPrice };
+                return {
+                    symbol: stock.symbol,
+                    netRevenue,
+                    tax,
+                    profit,
+                    oldPrice: currentPrice,
+                    newPrice,
+                    taxLabel,
+                    hoursHeld
+                };
             });
 
             const profitSign = result.profit.gte(0) ? '+' : '-';
             const dropPercent = result.oldPrice.minus(result.newPrice).div(result.oldPrice).times(100);
+
+            // Time formatting for display
+            const hours = Math.floor(result.hoursHeld);
+            const minutes = Math.floor((result.hoursHeld - hours) * 60);
+            const timeHeldStr = `${hours}h ${minutes}m`;
 
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
                 .setTitle("✅ Sale Successful")
                 .setDescription(`Sold **${amount}** shares of **${result.symbol}**.`)
                 .addFields(
-                    { name: 'Net Revenue', value: `$${result.netRevenue.toFixed(2)}`, inline: true },
+                    { name: 'Financials', value: `Gross: $${(result.netRevenue.plus(result.tax)).toFixed(2)}\nTax: -$${result.tax.toFixed(2)}\nNet: **$${result.netRevenue.toFixed(2)}**`, inline: true },
+                    { name: 'Tax Bracket', value: `**${result.taxLabel}**\nHeld for: ${timeHeldStr}`, inline: true },
                     { name: 'Profit', value: `${profitSign}$${result.profit.abs().toFixed(2)}`, inline: true },
                     { name: 'Price Impact 📉', value: `$${result.oldPrice.toFixed(2)} ➔ $${result.newPrice.toFixed(2)} (-${dropPercent.toFixed(1)}%)`, inline: false }
                 );

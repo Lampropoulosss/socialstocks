@@ -111,7 +111,8 @@ module.exports = {
                         where: { id: portfolio.id },
                         data: {
                             shares: { increment: amount },
-                            averageBuyPrice: newAverage.toString()
+                            averageBuyPrice: newAverage.toString(),
+                            lastBuyAt: new Date()
                         }
                     });
                 } else {
@@ -120,7 +121,8 @@ module.exports = {
                             ownerId: buyer.id,
                             stockId: stock.id,
                             shares: amount,
-                            averageBuyPrice: currentPrice.toString()
+                            averageBuyPrice: currentPrice.toString(),
+                            lastBuyAt: new Date()
                         }
                     });
                 }

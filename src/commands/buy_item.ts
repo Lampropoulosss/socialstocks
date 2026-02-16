@@ -34,9 +34,9 @@ module.exports = {
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
                 .setTitle("✅ Purchase Successful")
-                .setDescription(`Used **${result.itemName}** on **${result.targetName}**.`)
+                .setDescription(`Used **${result.itemName}** on **${targetUser.username}**.`)
                 .addFields(
-                    { name: 'Cost', value: `$${result.price}`, inline: true },
+                    { name: 'Cost', value: `$${result.price.toLocaleString()}`, inline: true },
                     { name: 'Duration', value: `${result.duration} mins`, inline: true }
                 );
 

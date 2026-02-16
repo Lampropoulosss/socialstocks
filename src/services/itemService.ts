@@ -1,5 +1,10 @@
 import { redisCache } from '../redis';
 import prisma from '../prisma';
+import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
+
+// Helper for Inputs
+type DecimalLike = number | { toNumber(): number } | InstanceType<typeof Decimal>;
 
 export enum ItemType {
     BULLHORN = 'BULLHORN',
@@ -12,7 +17,8 @@ export interface ShopItem {
     id: ItemType;
     name: string;
     description: string;
-    price: number;
+    basePrice: number;
+    wealthPercent: number;
     durationMinutes: number;
     cooldownMinutes: number;
 }
@@ -22,7 +28,8 @@ export const SHOP_ITEMS: ShopItem[] = [
         id: ItemType.BULLHORN,
         name: 'The Bullhorn',
         description: '2x Activity Points (20 mins)',
-        price: 800, // Reduced from 2500 (Accessible after ~80 messages)
+        basePrice: 800,
+        wealthPercent: 0.01,
         durationMinutes: 20,
         cooldownMinutes: 120
     },
@@ -30,15 +37,17 @@ export const SHOP_ITEMS: ShopItem[] = [
         id: ItemType.PRICE_FREEZE,
         name: 'Night Shield',
         description: 'Prevent stock price drop (8 hours)',
-        price: 2000, // Reduced from 5000 (Mid-tier investment)
+        basePrice: 2000,
+        wealthPercent: 0.02,
         durationMinutes: 480,
         cooldownMinutes: 1440
     },
     {
         id: ItemType.RUMOR_MILL,
         name: 'Rumor Mill',
-        description: 'Drop stock price by 5% and reduce growth by 20% (1 hour)',
-        price: 4500,
+        description: 'Target drops 5% value & -20% growth (1 hr)',
+        basePrice: 4500,
+        wealthPercent: 0.05,
         durationMinutes: 60,
         cooldownMinutes: 240
     },
@@ -46,7 +55,8 @@ export const SHOP_ITEMS: ShopItem[] = [
         id: ItemType.LIQUID_LUCK,
         name: 'Liquid Luck',
         description: 'Boost Volatility (30 Mins)',
-        price: 7500, // Reduced from 15000 (High-tier, but attainable)
+        basePrice: 7500,
+        wealthPercent: 0.03,
         durationMinutes: 30,
         cooldownMinutes: 360
     }
@@ -58,129 +68,137 @@ export class ItemService {
         return SHOP_ITEMS;
     }
 
-    static async buyItem(buyerDiscordId: string, guildId: string, itemId: ItemType, targetDiscordId: string) {
-        // 1. Validate Buyer and Target
-        const buyer = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId: buyerDiscordId, guildId } }
-        });
+    static calculateItemCost(item: ShopItem, netWorth: DecimalLike): number {
+        const nw = typeof netWorth === 'number' ? netWorth : netWorth.toNumber();
+        const wealthCost = nw * item.wealthPercent;
+        return Math.floor(Math.max(item.basePrice, wealthCost));
+    }
 
-        if (!buyer) throw new Error("You don't have a profile.");
-
-        const target = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId: targetDiscordId, guildId } },
-            include: { stock: true }
-        });
-
-        if (!target || !target.stock) throw new Error("Target user not found or has no stock.");
-
+    static async buyItem(buyerId: string, guildId: string, itemId: ItemType, targetId: string) {
         const item = SHOP_ITEMS.find(i => i.id === itemId);
         if (!item) throw new Error("Invalid item.");
 
-        // 2. Check Cooldowns and Active Effects
-        const now = new Date();
-        if (itemId === ItemType.BULLHORN) {
-            if (target.bullhornUntil && target.bullhornUntil > now) {
-                throw new Error("This effect is already active on the target.");
-            }
-        } else if (itemId === ItemType.PRICE_FREEZE) {
-            if (target.stock?.frozenUntil && target.stock.frozenUntil > now) {
-                throw new Error("This stock is already frozen.");
-            }
-        } else if (itemId === ItemType.LIQUID_LUCK) {
-            if (target.liquidLuckUntil && target.liquidLuckUntil > now) {
-                throw new Error("This effect is already active on the target.");
-            }
-        } else if (itemId === ItemType.RUMOR_MILL) {
-            if (target.rumorMillUntil && target.rumorMillUntil > now) {
-                throw new Error("This user is already suffering from rumors.");
-            }
-            // Cannot use on yourself
-            if (buyer.id === target.id) {
-                throw new Error("You cannot start rumors about yourself.");
-            }
-        }
-
-        const getKeys = () => {
-            return {
-                cooldownBuyer: `cooldown:${itemId.toLowerCase()}:buyer:${buyer.discordId}:${buyer.guildId}`,
-                cooldownTarget: `cooldown:${itemId.toLowerCase()}:target:${target.discordId}:${target.guildId}`
-            };
+        // 1. FAST FAIL: Redis Cooldowns
+        const keys = {
+            buyer: `cooldown:${itemId}:${buyerId}:${guildId}`,
+            target: `cooldown:${itemId}:${targetId}:${guildId}`
         };
+        const [cdBuyer, cdTarget] = await Promise.all([
+            redisCache.get(keys.buyer),
+            redisCache.get(keys.target)
+        ]);
+        if (cdBuyer) throw new Error(`You are on cooldown.`);
+        if (cdTarget) throw new Error(`Target is on cooldown.`);
 
-        const keys = getKeys();
-
-        // Check Cooldowns
-        const cdBuyer = await redisCache.get(keys.cooldownBuyer);
-        if (cdBuyer) {
-            const ttl = await redisCache.ttl(keys.cooldownBuyer);
-            throw new Error(`You are on cooldown for this item. Try again in ${Math.ceil(ttl / 60)}m.`);
-        }
-
-        const cdTarget = await redisCache.get(keys.cooldownTarget);
-        if (cdTarget) {
-            const ttl = await redisCache.ttl(keys.cooldownTarget);
-            throw new Error(`The target is on cooldown for this item. Try again in ${Math.ceil(ttl / 60)}m.`);
-        }
-
-        // 3. Process Transaction & Apply Effect
-        const durationSec = item.durationMinutes * 60;
-        const cooldownSec = item.cooldownMinutes * 60;
-        const activeUntil = new Date(now.getTime() + durationSec * 1000);
-
-        await prisma.$transaction(async (tx) => {
-            const freshBuyer = await tx.user.findUniqueOrThrow({ where: { id: buyer.id } });
-            if (freshBuyer.balance.toNumber() < item.price) throw new Error(`Insufficient funds. You need $${item.price}.`);
-
-            await tx.user.update({
-                where: { id: buyer.id },
-                data: { balance: { decrement: item.price } }
-            });
-
-            if (itemId === ItemType.PRICE_FREEZE) {
-                await tx.stock.update({
-                    where: { id: target.stock!.id },
-                    data: { frozenUntil: activeUntil }
-                });
-            } else if (itemId === ItemType.BULLHORN) {
-                await tx.user.update({
-                    where: { id: target.id },
-                    data: { bullhornUntil: activeUntil }
-                });
-            } else if (itemId === ItemType.LIQUID_LUCK) {
-                await tx.user.update({
-                    where: { id: target.id },
-                    data: { liquidLuckUntil: activeUntil }
-                });
-            } else if (itemId === ItemType.RUMOR_MILL) {
-                // 1. Apply the Debuff Timer
-                await tx.user.update({
-                    where: { id: target.id },
-                    data: { rumorMillUntil: activeUntil }
-                });
-
-                // 2. Instant 5% Price Drop
-                // Note: We use executeRaw for decimal multiplication safety or JS calculation
-                const currentPrice = target.stock!.currentPrice.toNumber();
-                const rawNewPrice = Math.max(1.00, currentPrice * 0.95);
-                // Convert to fixed string then back to number to strip extra decimals
-                const newPrice = parseFloat(rawNewPrice.toFixed(2));
-
-                await tx.stock.update({
-                    where: { id: target.stock!.id },
-                    data: { currentPrice: newPrice }
-                });
+        // 2. QUERY 1: Fetch Buyer & Portfolio
+        const buyer = await prisma.user.findUnique({
+            where: { discordId_guildId: { discordId: buyerId, guildId } },
+            include: {
+                portfolio: { include: { stock: { select: { currentPrice: true } } } }
             }
         });
 
-        // 4. Apply Redis Cooldowns
-        await redisCache.set(keys.cooldownBuyer, '1', 'EX', cooldownSec);
-        await redisCache.set(keys.cooldownTarget, '1', 'EX', cooldownSec);
+        if (!buyer) throw new Error("User not found.");
 
-        return {
-            itemName: item.name,
-            price: item.price,
-            targetName: target.username,
-            duration: item.durationMinutes
-        };
+        if (itemId === ItemType.RUMOR_MILL && buyer.discordId === targetId) {
+            throw new Error("You cannot use Rumor Mill on yourself.");
+        }
+
+        let portfolioValue = new Decimal(0);
+        for (const p of buyer.portfolio) {
+            portfolioValue = portfolioValue.plus(
+                new Decimal(p.stock.currentPrice.toString()).times(p.shares.toString())
+            );
+        }
+
+        const balance = new Decimal(buyer.balance.toString());
+        const netWorth = balance.plus(portfolioValue);
+        const cost = this.calculateItemCost(item, netWorth);
+
+        if (balance.lessThan(cost)) {
+            throw new Error(`Insufficient funds. Cost: $${cost.toLocaleString()}`);
+        }
+
+        // 3. QUERY 2: Atomic Transaction
+        return await prisma.$transaction(async (tx) => {
+            // Deduct Money
+            await tx.user.update({
+                where: { id: buyer.id },
+                data: { balance: { decrement: cost } }
+            });
+
+            const now = new Date();
+            const activeUntil = new Date(now.getTime() + item.durationMinutes * 60000);
+            let result: Prisma.BatchPayload = { count: 0 };
+
+            if (itemId === ItemType.BULLHORN) {
+                result = await tx.user.updateMany({
+                    where: {
+                        discordId: targetId,
+                        guildId,
+                        OR: [{ bullhornUntil: null }, { bullhornUntil: { lt: now } }]
+                    },
+                    data: { bullhornUntil: activeUntil }
+                });
+            }
+            else if (itemId === ItemType.PRICE_FREEZE) {
+                result = await tx.stock.updateMany({
+                    where: {
+                        user: { discordId: targetId, guildId },
+                        OR: [{ frozenUntil: null }, { frozenUntil: { lt: now } }]
+                    },
+                    data: { frozenUntil: activeUntil }
+                });
+            }
+            else if (itemId === ItemType.LIQUID_LUCK) {
+                result = await tx.user.updateMany({
+                    where: {
+                        discordId: targetId,
+                        guildId,
+                        OR: [{ liquidLuckUntil: null }, { liquidLuckUntil: { lt: now } }]
+                    },
+                    data: { liquidLuckUntil: activeUntil }
+                });
+            }
+            else if (itemId === ItemType.RUMOR_MILL) {
+                const targetStock = await tx.stock.findFirst({
+                    where: { user: { discordId: targetId, guildId } }
+                });
+
+                if (!targetStock) throw new Error("Target has no stock to crash.");
+
+                result = await tx.user.updateMany({
+                    where: {
+                        id: targetStock.userId,
+                        OR: [{ rumorMillUntil: null }, { rumorMillUntil: { lt: now } }]
+                    },
+                    data: { rumorMillUntil: activeUntil }
+                });
+
+                if (result.count > 0) {
+                    const currentPrice = new Decimal(targetStock.currentPrice.toString());
+                    const newPrice = Decimal.max(10.00, currentPrice.times(0.95));
+                    await tx.stock.update({
+                        where: { id: targetStock.id },
+                        data: { currentPrice: newPrice.toNumber() }
+                    });
+                }
+            }
+
+            if (result.count === 0) {
+                throw new Error("Target is protected, invalid, or already has this effect.");
+            }
+
+            // Redis Set
+            await redisCache.set(keys.buyer, '1', 'EX', item.cooldownMinutes * 60);
+            await redisCache.set(keys.target, '1', 'EX', item.cooldownMinutes * 60);
+
+            return {
+                itemName: item.name,
+                price: cost,
+                targetId: targetId,
+                duration: item.durationMinutes
+            };
+        });
     }
 }

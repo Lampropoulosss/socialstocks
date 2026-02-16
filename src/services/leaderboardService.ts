@@ -44,7 +44,6 @@ export class LeaderboardService {
         console.log('Leaderboard Sync Complete.');
     }
 
-    // UPDATED: Accepts offset/limit implicitly via page
     static async getLeaderboard(guildId: string, page: number = 1) {
         const key = `${this.LEADERBOARD_KEY_PREFIX}:${guildId}`;
 
@@ -79,7 +78,6 @@ export class LeaderboardService {
         return { leaderboard, totalCount };
     }
 
-    // UPDATED: Handles pagination buttons
     static async getLeaderboardResponse(guildId: string, page: number = 1) {
         const { leaderboard, totalCount } = await this.getLeaderboard(guildId, page);
 
@@ -143,7 +141,6 @@ export class LeaderboardService {
         return { embeds: [embed], components: [navRow, actionRow] };
     }
 
-    // ... [Keep recalculateAllNetWorths as is] ...
     static async recalculateAllNetWorths() {
         console.log("🔄 Starting Batched Net Worth Sync...");
         const start = Date.now();

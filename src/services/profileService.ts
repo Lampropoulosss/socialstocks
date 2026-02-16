@@ -42,7 +42,15 @@ export class ProfileService {
                     skip: (page - 1) * CONSTANTS.PAGE_SIZE,
                     take: CONSTANTS.PAGE_SIZE,
                     orderBy: { shares: 'desc' },
-                    include: { stock: true }
+                    include: {
+                        stock: {
+                            include: {
+                                user: {
+                                    select: { username: true }
+                                }
+                            }
+                        }
+                    }
                 },
                 _count: {
                     select: { portfolio: true }
@@ -116,7 +124,7 @@ export class ProfileService {
                 }
 
                 const emoji = profitPct.gte(0) ? '🟢' : '🔴';
-                return `**${p.stock.symbol}**: ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
+                return `**${p.stock.symbol}** (${p.stock.user.username}): ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
             }).join('\n');
 
             embed.addFields({ name: 'Your Portfolio', value: portfolioDesc.substring(0, 1024) });

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { Colors } from '../utils/theme';
-
 import prisma from '../prisma';
+import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 
 module.exports = {
@@ -25,36 +25,27 @@ module.exports = {
         const sellerDiscordId = interaction.user.id;
         const guildId = interaction.guildId!;
 
-        // 1. Basic User Checks (No Transaction Needed yet)
-        const seller = await prisma.user.findUnique({
-            where: { discordId_guildId: { discordId: sellerDiscordId, guildId } }
-        });
-
-        if (!seller) {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Danger)
-                .setDescription("🚫 You don't have a profile.");
-            await interaction.editReply({ embeds: [embed] });
-            return;
-        }
-
         try {
-            // 2. Everything sensitive moves INSIDE the transaction
-            const result = await prisma.$transaction(async (tx) => {
+            type UserWithStock = Prisma.UserGetPayload<{ include: { stock: true } }>;
 
-                // A. Re-fetch Target & Stock to be safe
-                const targetUserDb = await tx.user.findUnique({
-                    where: { discordId_guildId: { discordId: targetUser.id, guildId } },
-                    include: { stock: true }
-                });
+            const users: UserWithStock[] = await prisma.user.findMany({
+                where: {
+                    guildId: guildId,
+                    discordId: { in: [sellerDiscordId, targetUser.id] }
+                },
+                include: { stock: true }
+            });
 
-                if (!targetUserDb || !targetUserDb.stock) {
-                    throw new Error("🚫 Stock not found.");
-                }
+            const seller = users.find(u => u.discordId === sellerDiscordId);
+            const target = users.find(u => u.discordId === targetUser.id);
 
-                const stock = targetUserDb.stock;
+            if (!seller) return errorReply(interaction, "🚫 You don't have a profile.");
+            if (!target || !target.stock) return errorReply(interaction, "🚫 Stock not found.");
 
-                // B. Fetch Portfolio (INSIDE TX) to lock/verify current state
+            const stock = target.stock;
+
+            const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+
                 const portfolio = await tx.portfolio.findUnique({
                     where: { ownerId_stockId: { ownerId: seller.id, stockId: stock.id } }
                 });
@@ -63,32 +54,39 @@ module.exports = {
                     throw new Error(`🚫 You do not have enough shares. Owned: ${portfolio?.shares || 0}`);
                 }
 
-                // C. Calculate Finances
+                // Calculations
                 const TAX_RATE = new Decimal(0.10);
                 const currentPrice = new Decimal(String(stock.currentPrice));
-                const sharesToSell = new Decimal(amount);
-
-                const grossRevenue = currentPrice.times(sharesToSell);
+                const grossRevenue = currentPrice.times(amount);
                 const tax = grossRevenue.times(TAX_RATE).toDecimalPlaces(2);
                 const netRevenue = grossRevenue.minus(tax);
 
-                const averageBuyPrice = new Decimal(String(portfolio.averageBuyPrice));
-                const costBasis = averageBuyPrice.times(sharesToSell);
-                const profit = netRevenue.minus(costBasis);
+                const avgBuy = new Decimal(String(portfolio.averageBuyPrice));
+                const profit = netRevenue.minus(avgBuy.times(amount));
 
-                // D. Update Balance
+                // Price Impact
+                const supplyRatio = new Decimal(amount).div(stock.totalShares);
+                const priceDropPct = supplyRatio.times(0.5);
+                let newPrice = currentPrice.times(new Decimal(1).minus(priceDropPct));
+                if (newPrice.lessThan(0.01)) newPrice = new Decimal(0.01);
+
+                // Update Balance
                 await tx.user.update({
                     where: { id: seller.id },
                     data: { balance: { increment: netRevenue.toFixed(2) } }
                 });
 
-                // E. Update Global Supply (Decrement sharesOutstanding)
+                // Update Supply & Crash Price
                 await tx.stock.update({
                     where: { id: stock.id },
-                    data: { sharesOutstanding: { decrement: amount } }
+                    data: {
+                        sharesOutstanding: { decrement: amount },
+                        currentPrice: newPrice.toFixed(2),
+                        updatedAt: new Date()
+                    }
                 });
 
-                // F. Update Portfolio
+                // Update Portfolio
                 if (portfolio.shares === amount) {
                     await tx.portfolio.delete({ where: { id: portfolio.id } });
                 } else {
@@ -98,16 +96,11 @@ module.exports = {
                     });
                 }
 
-                return {
-                    symbol: stock.symbol,
-                    netRevenue,
-                    tax,
-                    profit
-                };
+                return { symbol: stock.symbol, netRevenue, tax, profit, oldPrice: currentPrice, newPrice };
             });
 
-            // 3. Send Success Response (Outside TX)
-            const profitSign = result.profit.greaterThanOrEqualTo(0) ? '+' : '-';
+            const profitSign = result.profit.gte(0) ? '+' : '-';
+            const dropPercent = result.oldPrice.minus(result.newPrice).div(result.oldPrice).times(100);
 
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
@@ -115,18 +108,20 @@ module.exports = {
                 .setDescription(`Sold **${amount}** shares of **${result.symbol}**.`)
                 .addFields(
                     { name: 'Net Revenue', value: `$${result.netRevenue.toFixed(2)}`, inline: true },
-                    { name: 'Tax Paid', value: `$${result.tax.toFixed(2)}`, inline: true },
-                    { name: 'Profit', value: `${profitSign}$${result.profit.abs().toFixed(2)}`, inline: true }
+                    { name: 'Profit', value: `${profitSign}$${result.profit.abs().toFixed(2)}`, inline: true },
+                    { name: 'Price Impact 📉', value: `$${result.oldPrice.toFixed(2)} ➔ $${result.newPrice.toFixed(2)} (-${dropPercent.toFixed(1)}%)`, inline: false }
                 );
 
             await interaction.editReply({ embeds: [embed] });
 
         } catch (error: any) {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Danger)
-                .setTitle("❌ Transaction Failed")
-                .setDescription(error.message || "An error occurred while processing your sale.");
-            await interaction.editReply({ embeds: [embed] });
+            errorReply(interaction, error.message || "Transaction failed.");
         }
     },
 };
+
+async function errorReply(interaction: ChatInputCommandInteraction, msg: string) {
+    const embed = new EmbedBuilder().setColor(Colors.Danger).setDescription(msg);
+    if (interaction.deferred) await interaction.editReply({ embeds: [embed] });
+    else await interaction.reply({ embeds: [embed], flags: 64 });
+}

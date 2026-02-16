@@ -3,6 +3,7 @@ import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
 import { redisCache } from '../redis';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 export class LeaderboardService {
     private static LEADERBOARD_KEY_PREFIX = 'leaderboard:networth';
@@ -91,7 +92,7 @@ export class LeaderboardService {
         const embed = new EmbedBuilder()
             .setTitle('🏆 SocialStocks Leaderboard')
             .setColor(Colors.Gold)
-            .setDescription(leaderboard.map(u => `**#${u.rank}** ${u.username} — $${Number(u.netWorth).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join('\n'))
+            .setDescription(leaderboard.map(u => `**#${u.rank}** ${escapeMarkdown(u.username)} — $${Number(u.netWorth).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join('\n'))
             .setFooter({ text: `Page ${currentPage} of ${totalPages} • Updates every 5 minutes` });
 
         // Navigation Row

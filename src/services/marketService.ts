@@ -1,6 +1,7 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import prisma from '../prisma';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 export class MarketService {
     private static readonly PAGE_SIZE = 10;
@@ -29,7 +30,7 @@ export class MarketService {
         const description = stocks.length > 0
             ? stocks.map((s, i) => {
                 const rank = (currentPage - 1) * this.PAGE_SIZE + i + 1;
-                return `**${rank}.** \`${s.symbol}\` (${s.user.username}): **$${Number(s.currentPrice).toLocaleString()}**`;
+                return `**${rank}.** \`${s.symbol}\` (${escapeMarkdown(s.user.username)}): **$${Number(s.currentPrice).toLocaleString()}**`;
             }).join('\n')
             : "No active stocks found in this server.";
 

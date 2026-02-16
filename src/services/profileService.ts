@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import prisma from '../prisma';
 import { redisCache } from '../redis';
 import { Colors, ButtonLabels, Emojis } from '../utils/theme';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 const CONSTANTS = {
     DEFAULT_BALANCE: 100.00,
@@ -86,13 +87,13 @@ export class ProfileService {
         const currentPage = Math.max(1, Math.min(page, totalPages));
 
         const embed = new EmbedBuilder()
-            .setTitle(`${user.username}'s Profile`)
+            .setTitle(`${escapeMarkdown(user.username)}'s Profile`)
             .setColor(Colors.Primary)
             .setFooter({ text: `Page ${currentPage} of ${totalPages} • Total Holdings: ${totalPortfolioItems}` });
 
         if (user.stock) {
             if (majorityShareholderUsername) {
-                embed.setDescription(`🔒 **Property of ${majorityShareholderUsername}**`);
+                embed.setDescription(`🔒 **Property of ${escapeMarkdown(majorityShareholderUsername)}**`);
             }
             const outstanding = user.stock.sharesOutstanding;
             const maxShares = user.stock.totalShares;
@@ -124,7 +125,7 @@ export class ProfileService {
                 }
 
                 const emoji = profitPct.gte(0) ? '🟢' : '🔴';
-                return `**${p.stock.symbol}** (${p.stock.user.username}): ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
+                return `**${p.stock.symbol}** (${escapeMarkdown(p.stock.user.username)}): ${p.shares} shares @ $${avgBuyPrice.toFixed(2)} (Cur: $${currentPrice.toFixed(2)}) ${emoji} ${profitPct.toFixed(1)}%`;
             }).join('\n');
 
             embed.addFields({ name: 'Your Portfolio', value: portfolioDesc.substring(0, 1024) });

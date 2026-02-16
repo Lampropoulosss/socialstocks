@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { Colors } from '../utils/theme';
 import { ItemService, ItemType } from '../services/itemService';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -34,7 +35,7 @@ module.exports = {
             const embed = new EmbedBuilder()
                 .setColor(Colors.Success)
                 .setTitle("✅ Purchase Successful")
-                .setDescription(`Used **${result.itemName}** on **${targetUser.username}**.`)
+                .setDescription(`Used **${result.itemName}** on **${escapeMarkdown(targetUser.username)}**.`)
                 .addFields(
                     { name: 'Cost', value: `$${result.price.toLocaleString()}`, inline: true },
                     { name: 'Duration', value: `${result.duration} mins`, inline: true }

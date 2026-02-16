@@ -4,6 +4,7 @@ import { ProfileService } from '../services/profileService';
 import Decimal from 'decimal.js';
 import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -35,7 +36,7 @@ module.exports = {
         if (targetUser.bot) return errorReply(interaction, "🚫 You cannot buy stock in bots.");
 
         const isTargetOptedOut = await ProfileService.isUserOptedOut(targetUser.id, guildId);
-        if (isTargetOptedOut) return errorReply(interaction, `🚫 **${targetUser.username}** has opted out.`);
+        if (isTargetOptedOut) return errorReply(interaction, `🚫 **${escapeMarkdown(targetUser.username)}** has opted out.`);
 
         try {
             type UserWithStock = Prisma.UserGetPayload<{ include: { stock: true } }>;

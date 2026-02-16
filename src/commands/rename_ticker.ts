@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from '
 import { Colors } from '../utils/theme';
 import prisma from '../prisma';
 import { ShareholderService } from '../services/shareholderService';
+import { escapeMarkdown } from '../utils/markdownUtils';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -96,7 +97,7 @@ module.exports = {
         const embed = new EmbedBuilder()
             .setColor(Colors.Success)
             .setTitle("✅ Ticker Renamed")
-            .setDescription(`**${targetUserOption.username}**'s stock is now traded as **${newTicker}**.`)
+            .setDescription(`**${escapeMarkdown(targetUserOption.username)}**'s stock is now traded as **${newTicker}**.`)
             .setFooter({ text: `Paid by Majority Shareholder ${interaction.user.username}` });
 
         await interaction.editReply({ embeds: [embed] });

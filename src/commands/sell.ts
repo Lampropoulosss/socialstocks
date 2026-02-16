@@ -68,7 +68,7 @@ module.exports = {
                 const supplyRatio = new Decimal(amount).div(stock.totalShares);
                 const priceDropPct = supplyRatio.times(0.5);
                 let newPrice = currentPrice.times(new Decimal(1).minus(priceDropPct));
-                if (newPrice.lessThan(0.01)) newPrice = new Decimal(0.01);
+                if (newPrice.lessThan(10)) newPrice = new Decimal(10);
 
                 // Update Balance
                 await tx.user.update({
